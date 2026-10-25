@@ -8,6 +8,26 @@
   var esc = N.escaparHtml;
   function $(s) { return document.querySelector(s); }
 
+  // Planos sugeridos para a RMD oferecer (pesquisa de mercado de 25/10/2026; preços de referência, a RMD decide).
+  // "recursos" = o que o botão "Ligar recursos deste plano" deixa ligado na loja.
+  var PLANOS = [
+    { id: 'essencial', nome: 'Essencial', preco: 79.90, anual: 799.00, para: 'Quem está começando o delivery próprio',
+      itens: ['Cardápio online com QR Code e link', 'Pedidos de entrega, retirada e mesa', 'Painel de pedidos com contagem do prazo', 'Logo e cores da loja', 'Pedido também pelo WhatsApp', 'Acessos da equipe com usuário e senha'],
+      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: false, entregadores: false, relatorios: false } },
+    { id: 'profissional', nome: 'Profissional', preco: 149.90, anual: 1499.00, para: 'Restaurante com cozinha e entregadores', destaque: true,
+      itens: ['Tudo do Essencial', 'Tela da cozinha', 'Tela do entregador no celular (sem mapa falso)', 'Nome do entregador e prazo em cada pedido', 'Suporte por WhatsApp em horário comercial'],
+      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: true, entregadores: true, relatorios: false } },
+    { id: 'completo', nome: 'Completo', preco: 229.90, anual: 2299.00, para: 'Quem quer controle e números do negócio',
+      itens: ['Tudo do Profissional', 'Relatórios de vendas e produtos mais pedidos', 'Cadastro inicial do cardápio feito pela RMD', 'QR Codes impressos das mesas', 'Suporte prioritário'],
+      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: true, entregadores: true, relatorios: true } }
+  ];
+  var MERCADO = [
+    ['Anota AI', 'R$ 99,99 a R$ 299,99/mês conforme o número de pedidos', 'https://anota.ai/blog/faq-anota-ai/'],
+    ['Cardápio Web', 'R$ 169,99 (mesas) · R$ 209,99 (delivery) · R$ 269,99 (completo)/mês', 'https://ajuda.cardapioweb.com/boas-vindas/planos-funcionalidades-e-modulos-adicionais'],
+    ['Goomer', 'grátis até 30 pedidos · R$ 99,90 + R$ 70 do delivery · R$ 184,90 · R$ 299,90/mês', 'https://goomer.com.br/planos'],
+    ['Saipos', 'a partir de R$ 240,79/mês (gestão completa, fiscal, estoque)', 'https://saipos.com/sistema/delivery']
+  ];
+
   var RECURSOS = [
     ['entrega', 'Entrega'], ['retirada', 'Retirada no balcão'], ['local', 'Consumo na loja (mesa)'],
     ['cozinha', 'Tela da cozinha'], ['entregadores', 'Entregadores'], ['qrcode', 'QR Code'], ['relatorios', 'Relatórios do restaurante']
@@ -86,6 +106,8 @@
       }).join('') + '</div><p style="font-size:12px;color:var(--texto-2)">Recurso desligado some do cardápio/painel e o servidor recusa o uso.</p>' +
       '<button class="btn btn-ouro" type="submit">Salvar liberação</button></form>';
 
+    h += htmlPlanos(c.recursos || {});
+
     h += '<div class="caixa"><h3 style="margin-top:0">Acessos do restaurante</h3>' + (p.equipe.length
       ? p.equipe.map(function (m) {
         return '<div class="barra-acoes" style="margin-bottom:6px;align-items:flex-start"><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>' + esc(m.nome) + '</b> · ' + esc(PAPEIS[m.papel] || m.papel) +
@@ -113,6 +135,34 @@
     $('#conteudo').innerHTML = h;
   }
 
+  function planoAtual(rec) {
+    var r = PLANOS.filter(function (pl) { return Object.keys(pl.recursos).every(function (k) { return (rec[k] !== false) === pl.recursos[k]; }); })[0];
+    return r ? r.id : null;
+  }
+
+  function htmlPlanos(rec) {
+    var atual = planoAtual(rec);
+    var h = '<div class="caixa"><h3 style="margin-top:0">Planos para oferecer ao cliente</h3>' +
+      '<p style="font-size:13px;color:var(--texto-2)">Sugestão da RMD com base nos preços do mercado (pesquisa de 25/10/2026). Os valores são seus para decidir; ' +
+      'o botão só liga na loja os recursos de cada plano.</p><div class="grade">';
+    PLANOS.forEach(function (pl) {
+      var eco = Math.round((pl.preco * 12 - pl.anual) * 100) / 100;
+      h += '<div class="resumo-bloco" style="margin:0;' + (pl.destaque ? 'border-color:var(--ouro)' : '') + '">' +
+        (pl.destaque ? '<span class="selo-agora">MAIS INDICADO</span>' : '') + (atual === pl.id ? ' <span class="status st-PRONTO">plano atual da loja</span>' : '') +
+        '<h3 style="margin:6px 0 2px;font-size:20px;color:var(--creme)">' + esc(pl.nome) + '</h3>' +
+        '<div style="font-size:13px;color:var(--texto-2)">' + esc(pl.para) + '</div>' +
+        '<div class="preco" style="margin:8px 0 2px">' + N.reais(pl.preco) + '<small style="font-size:13px;color:var(--texto-2)"> /mês</small></div>' +
+        '<div style="font-size:13px;color:var(--texto-2)">ou ' + N.reais(pl.anual) + ' por ano (economia de ' + N.reais(eco) + ')</div>' +
+        '<ul style="padding-left:18px;margin:8px 0;font-size:14px">' + pl.itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>' +
+        '<button class="btn btn-linha btn-peq btn-bloco" type="button" data-acao="aplicar-plano" data-plano="' + pl.id + '">Ligar recursos deste plano</button></div>';
+    });
+    h += '</div><p style="font-size:13px;margin:12px 0 4px"><b>Implantação (opcional, uma vez):</b> R$ 150,00 — cadastro do cardápio, logo, QR Codes e treinamento da equipe.</p>' +
+      '<details style="margin-top:8px"><summary>Comparação com o mercado</summary><ul style="padding-left:18px;font-size:13px">' +
+      MERCADO.map(function (m) { return '<li><b>' + esc(m[0]) + ':</b> ' + esc(m[1]) + ' (<a href="' + esc(m[2]) + '" target="_blank" rel="noopener">fonte</a>)</li>'; }).join('') +
+      '</ul><p style="font-size:12px;color:var(--texto-2)">Preços públicos dos sites/terceiros em outubro de 2026; podem mudar. Concorrentes cobram à parte taxas de pagamento online, fiscal e integrações.</p></details></div>';
+    return h;
+  }
+
   document.addEventListener('click', async function (ev) {
     var el = ev.target.closest('[data-acao]');
     if (!el) return;
@@ -122,6 +172,14 @@
     else if (a === 'tirar') {
       if (!confirm('Tirar o acesso de ' + el.dataset.nome + ' ao painel do restaurante? (a conta continua existindo, só perde o acesso)')) return;
       try { await api.rmdTirarAcesso(el.dataset.id); toast('Acesso retirado.'); carregar(); } catch (e) { alert(e.message); }
+    } else if (a === 'aplicar-plano') {
+      var pl = PLANOS.filter(function (x) { return x.id === el.dataset.plano; })[0];
+      var form = document.getElementById('form-controle');
+      Object.keys(pl.recursos).forEach(function (k) {
+        var cx = form.querySelector('input[name="rec"][value="' + k + '"]'); if (cx) cx.checked = pl.recursos[k];
+      });
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toast('Recursos do plano ' + pl.nome + ' marcados. Confira e toque em "Salvar liberação".');
     } else if (a === 'senha') {
       var nova = prompt('Nova senha para ' + el.dataset.nome + ' (mínimo 6 caracteres):');
       if (nova === null) return;

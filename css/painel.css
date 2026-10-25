@@ -78,3 +78,5 @@
 }
 .st-TESTE { background: #3b2a06; color: var(--aviso); border: 1px dashed #8a6d20; }
 .pedido-linha .info small { display: block; }
+.cartao-num { min-width: 0; }
+.cartao-num strong { display: block; overflow-wrap: anywhere; font-size: clamp(18px, 5.5vw, 24px); }
