@@ -120,7 +120,7 @@
 
   async function irPara(aba) {
     st.aba = aba; st.msg = null;
-    if (history.replaceState) history.replaceState(null, '', '#' + aba);
+    if (history.replaceState) history.replaceState(null, '', location.pathname + location.search + '#' + aba); // endereço completo: funciona também com <base> das pastas demo-*/
     renderNav();
     $('#conteudo').innerHTML = '<div class="estado">Carregando…</div>';
     try {

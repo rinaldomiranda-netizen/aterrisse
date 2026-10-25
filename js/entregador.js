@@ -44,7 +44,7 @@
     if ((api.modo === 'demo' && !api.vitrine) || !api.sessao()) return telaLogin();
     var papel = null;
     try { papel = await api.papel(); } catch (e) { return telaLogin(e.codigo === 'REDE' ? e.message : null); }
-    $('#btn-sair').classList.remove('oculto');
+    if (!api.vitrine) $('#btn-sair').classList.remove('oculto'); // na demonstração não há login para sair
     $('#quem').textContent = N.usuarioVisivel(api.sessao().email || '') + ' · Restaurante Aterrisse';
     if (papel !== 'entregador' && !api.vitrine) { // na vitrine a tela mostra as entregas do entregador de exemplo
       $('#conteudo').innerHTML = '<div class="login caixa"><h2>Sem acesso</h2><p>' + (papel

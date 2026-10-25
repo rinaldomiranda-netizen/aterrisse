@@ -84,10 +84,11 @@
     if (api.modo === 'demo' && !(window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE)) h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — os pedidos ficam só neste aparelho e NÃO chegam ao restaurante.</div>';
     if (horaSimulada) h += '<div class="faixa faixa-aviso">🕒 Hora simulada: ' + esc(horaSimulada) + ' (Maceió). Tire “?simular_hora” do endereço para voltar ao normal.</div>';
     var l = estado.cardapio && estado.cardapio.loja;
-    if (api.modo !== 'demo' && l && l.modo === 'demo' && l.liberada !== false) h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração — os pedidos chegam ao painel marcados como TESTE. Preços com “Exemplo” são fictícios.</div>';
+    // na demonstração (vitrine) fica só a barra "DEMONSTRAÇÃO" do topo, sem faixas repetidas
+    if (api.modo !== 'demo' && !api.vitrine && l && l.modo === 'demo' && l.liberada !== false) h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração — os pedidos chegam ao painel marcados como TESTE. Preços com “Exemplo” são fictícios.</div>';
     if (l && l.liberada === false) h += '<div class="faixa faixa-fechado" role="alert">Cardápio temporariamente indisponível.</div>';
     if (l && !l.aberto) h += '<div class="faixa faixa-fechado" role="alert">O restaurante não está recebendo pedidos agora. Você pode ver o cardápio.</div>';
-    if (l && l.aviso) h += '<div class="faixa faixa-aviso">' + esc(l.aviso) + '</div>';
+    if (l && l.aviso && !api.vitrine) h += '<div class="faixa faixa-aviso">' + esc(l.aviso) + '</div>';
     $('#faixas').innerHTML = h;
   }
 

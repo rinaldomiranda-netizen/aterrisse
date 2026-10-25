@@ -9,19 +9,31 @@
 
   if (!window.AterrisseBackend) return;
   var api = window.AterrisseBackend.criar(window.ATERRISSE_CONFIG);
-  var pagina = (location.pathname.split('/').pop() || 'index.html').slice(0, 60);
+  // ATERRISSE_PAGINA: nas pastas demo-*/ o endereço termina em "/", então a página diz quem ela é
+  var pagina = (window.ATERRISSE_PAGINA || location.pathname.split('/').pop() || 'index.html').slice(0, 60);
+
+  // Pastas demo-*/ usam <base href="../">: links "#..." seguiriam a base e sairiam do app; aqui ficam na própria página.
+  if (window.ATERRISSE_APP_DEMO) {
+    document.addEventListener('click', function (ev) {
+      var a = ev.target.closest && ev.target.closest('a[href^="#"]');
+      if (!a) return;
+      ev.preventDefault();
+      location.hash = a.getAttribute('href');
+    });
+  }
 
   // ---- vitrine de demonstração (?demo=1): só um aviso "DEMONSTRAÇÃO"; cada tela mostra só a sua função, igual ao real.
   //      "Recomeçar" fica só no painel da loja. Ícone "DEMO" instalável.
   if (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE) {
     var tela = /painel/.test(pagina) ? 'painel' : /entregador/.test(pagina) ? 'entregador' : /cozinha/.test(pagina) ? 'cozinha' : 'cardapio';
     var link = document.querySelector('link[rel="manifest"]');
-    if (link) link.setAttribute('href', 'manifest-demo-' + tela + '.webmanifest');
+    // nas pastas demo-*/ (um app separado por tela) o manifesto já é o da pasta
+    if (link && !window.ATERRISSE_APP_DEMO) link.setAttribute('href', 'manifest-demo-' + tela + '.webmanifest');
     var barra = document.createElement('div');
     barra.className = 'barra-vitrine';
     barra.setAttribute('role', 'navigation');
     barra.setAttribute('aria-label', 'Demonstração');
-    barra.innerHTML = '<span class="vitrine-titulo">🎬 DEMONSTRAÇÃO · dados de exemplo</span>' +
+    barra.innerHTML = '<span class="vitrine-titulo">🎬 DEMONSTRAÇÃO · ' + (tela === 'cardapio' ? 'use nomes e endereços de exemplo' : 'dados de exemplo') + '</span>' +
       (tela === 'painel' ? '<span class="vitrine-botoes"><button class="btn btn-linha btn-peq" type="button" id="vitrine-recomecar">↺ Recomeçar demonstração</button></span>' : '');
     document.body.insertBefore(barra, document.body.firstChild);
     if (tela === 'painel') document.getElementById('vitrine-recomecar').addEventListener('click', function () {
