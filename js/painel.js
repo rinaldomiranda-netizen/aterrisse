@@ -31,16 +31,18 @@
   function renderFaixas() {
     var l = st.lojaPub, h = '';
     if (api.modo === 'demo' && !api.vitrine) h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — dados só neste navegador. Nada aqui é o servidor do restaurante.</div>';
-    else if (l && l.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração: os pedidos chegam marcados como TESTE.</div>';
+    else if (l && l.modo === 'demo' && !api.vitrine) h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração: os pedidos chegam marcados como TESTE.</div>';
     if (l && l.liberada === false) h += '<div class="faixa faixa-fechado" role="alert">Loja suspensa: o cardápio está indisponível para os clientes. Fale com a RMD.</div>';
     $('#faixas').innerHTML = h;
   }
 
   // Abas que o desenvolvedor RMD deixou liberadas (recursos desligados somem do painel; o servidor também recusa).
   var RECURSO_DA_ABA = { cozinha: 'cozinha', entregas: 'entregadores', minhas: 'entregadores', qrcode: 'qrcode', relatorios: 'relatorios' };
+  // cozinha.html: tela separada da cozinha (só a fila, sem valores), para o tablet/monitor da cozinha.
+  var TELA_COZINHA = window.ATERRISSE_TELA === 'cozinha';
   function abasLiberadas() {
     var rec = (st.lojaPub && st.lojaPub.recursos) || {};
-    return ABAS[st.papel].filter(function (a) { return !RECURSO_DA_ABA[a] || rec[RECURSO_DA_ABA[a]] !== false; });
+    return (TELA_COZINHA ? ['cozinha'] : ABAS[st.papel]).filter(function (a) { return !RECURSO_DA_ABA[a] || rec[RECURSO_DA_ABA[a]] !== false; });
   }
   function pedidosQueContam() {
     // no modo real, pedidos de teste (feitos na demonstração) não entram nos números
@@ -51,7 +53,7 @@
 
   function telaLogin(mensagem) {
     $('#nav').classList.add('oculto'); $('#btn-sair').classList.add('oculto'); $('#quem').textContent = 'Área da equipe';
-    var h = '<div class="login caixa"><h2>Entrar no painel</h2>';
+    var h = '<div class="login caixa"><h2>' + (TELA_COZINHA ? 'Entrar na cozinha' : 'Entrar no painel') + '</h2>';
     if (mensagem) h += '<div class="erro-caixa">' + esc(mensagem) + '</div>';
     if (api.modo === 'demo') {
       if (!api.temSenhaDemo()) {
@@ -87,13 +89,15 @@
         : '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe do Aterrisse. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
       return;
     }
+    if (api.vitrine && TELA_COZINHA) st.papel = 'cozinha'; // demonstração: a tela da cozinha age como a conta da cozinha
     if (st.papel === 'entregador') { location.href = 'entregador.html'; return; }
+    if (st.papel === 'cozinha' && !TELA_COZINHA) { location.href = 'cozinha.html'; return; }
     try { st.lojaPub = (await api.cardapio()).loja; } catch (e) { /* sem conexão: segue com o padrão */ }
     renderFaixas();
     window.AterrissePrazo.aoAtrasar(function (id, numero) { bip(); toast('⚠ Pedido #' + numero + ' passou do prazo!'); });
     var s = api.sessao() || {};
     $('#quem').textContent = N.usuarioVisivel(s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
-    $('#btn-sair').classList.remove('oculto');
+    if (!api.vitrine) $('#btn-sair').classList.remove('oculto'); // na demonstração não há login para sair
     var abas = abasLiberadas();
     var pedida = (location.hash || '').slice(1);
     irPara(abas.indexOf(pedida) >= 0 ? pedida : abas[0]);
@@ -105,6 +109,7 @@
 
   function renderNav() {
     var nav = $('#nav');
+    if (TELA_COZINHA) return; // tela da cozinha: uma tela só, sem abas
     nav.classList.remove('oculto');
     var novos = st.pedidos.filter(function (p) { return p.status === 'RECEBIDO'; }).length;
     nav.innerHTML = abasLiberadas().map(function (a) {
@@ -718,7 +723,7 @@
 
   function telaEquipe() {
     var h = '<h2>Equipe</h2>';
-    if (api.modo === 'demo') h += '<div class="aviso-caixa">No modo demonstração não há contas de equipe: o painel usa só a senha deste navegador.</div>';
+    if (api.modo === 'demo' || api.vitrine) h += '<div class="aviso-caixa">No modo demonstração não há contas de equipe: o painel usa só a senha deste navegador.</div>';
     else {
       h += '<div class="caixa"><h3 style="margin-top:0">Pessoas com acesso</h3>' + (st.equipe.length ? '<div class="rolagem-x"><table class="tabela"><thead><tr><th>Nome</th><th>Papel</th><th>Ativo</th></tr></thead><tbody>' +
         st.equipe.map(function (m) {
@@ -740,7 +745,8 @@
     }).join('') : '<p>Nenhum entregador.</p>') +
       '<form id="form-entregador" class="barra-acoes"><input class="entrada" id="e-nome" required minlength="2" maxlength="80" placeholder="Nome" aria-label="Nome do entregador">' +
       '<input class="entrada" id="e-tel" inputmode="tel" maxlength="20" placeholder="Telefone (opcional)" aria-label="Telefone do entregador"><button class="btn btn-ouro btn-peq" type="submit">+ Entregador</button></form>' +
-      '<p style="font-size:13px;color:var(--texto-2)">Cada entregador tem tela própria no celular: <a href="entregador.html" target="_blank" rel="noopener">entregador.html</a>. Ele cria a conta lá (“Ainda não tenho conta”) e você libera acima com o papel “Entregador”. Ele vê só as entregas dele, com prazo, endereço e botão do mapa.</p></div>';
+      '<p style="font-size:13px;color:var(--texto-2)">Cada entregador tem tela própria no celular: <a href="entregador.html" target="_blank" rel="noopener">entregador.html</a>. Crie o acesso dele acima com o papel “Entregador”. Ele vê só as entregas dele, com prazo, endereço e botão do mapa.</p>' +
+      '<p style="font-size:13px;color:var(--texto-2)">A cozinha também tem tela própria (tablet ou monitor): <a href="cozinha.html" target="_blank" rel="noopener">cozinha.html</a>, com acesso de papel “Cozinha”. Ela vê só os pedidos a preparar, sem valores nem dados do cliente.</p></div>';
     return h;
   }
 
@@ -900,7 +906,7 @@
       if (!/^[a-z0-9._-]{3,30}$/.test(novo.usuario)) { alert('Usuário com 3 a 30 letras ou números, sem acento e sem espaço.'); return; }
       if (novo.senha.length < 6) { alert('A senha precisa ter pelo menos 6 caracteres.'); return; }
       await tentar(function () { return api.criarAcesso(novo); });
-      alert('Acesso criado.\n\nUsuário: ' + novo.usuario + '\nSenha: a que você digitou\n\nEntrada: ' + location.href.replace(/painel\.html.*$/, '') + (novo.papel === 'entregador' ? 'entregador.html' : 'painel.html'));
+      alert('Acesso criado.\n\nUsuário: ' + novo.usuario + '\nSenha: a que você digitou\n\nEntrada: ' + location.href.replace(/painel\.html.*$/, '') + (novo.papel === 'entregador' ? 'entregador.html' : novo.papel === 'cozinha' ? 'cozinha.html' : 'painel.html'));
       irPara('equipe');
     } else if (f.id === 'form-entregador') {
       var tel = N.soDigitos($('#e-tel').value);

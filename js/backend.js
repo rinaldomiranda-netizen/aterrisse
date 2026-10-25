@@ -38,16 +38,24 @@
     return r;
   }
 
+  // cfg.VITRINE: demonstração integrada entre aparelhos, na LOJA DE DEMONSTRAÇÃO do servidor
+  // (tabelas e funções aterrisse_demo_*, sem login). A loja real nunca é usada nesse modo.
   function BackendSupabase(cfg, armazem) {
     this.modo = 'supabase';
+    this.vitrine = !!cfg.VITRINE;
+    this.prefixo = this.vitrine ? 'aterrisse_demo_' : 'aterrisse_';
     this.url = String(cfg.SUPABASE_URL || '').replace(/\/$/, '');
     this.chave = cfg.SUPABASE_CHAVE_PUBLICA;
     this.armazem = armazem || (typeof localStorage !== 'undefined' ? localStorage : null);
   }
 
-  BackendSupabase.prototype._sessao = function () { return this.armazem ? ler(this.armazem, 'aterrisse_sessao') : null; };
+  BackendSupabase.prototype._sessao = function () {
+    if (this.vitrine) return { email: 'demonstração', user_id: 'demo' };
+    return this.armazem ? ler(this.armazem, 'aterrisse_sessao') : null;
+  };
 
   BackendSupabase.prototype._token = async function () {
+    if (this.vitrine) return null; // demonstração: sem login, só a chave pública
     var s = this._sessao();
     if (!s) return null;
     if (s.expira_em - Date.now() < 60000) {
@@ -90,6 +98,7 @@
     if (prefer) cab.Prefer = prefer;
     var resp;
     try {
+      if (this.prefixo !== 'aterrisse_') caminho = caminho.replace(/aterrisse_/g, this.prefixo);
       resp = await fetch(this.url + '/rest/v1/' + caminho, { method: metodo, headers: cab, body: corpo === undefined ? undefined : JSON.stringify(corpo) });
     } catch (e) { throw Erro('Sem conexão com o servidor. Verifique a internet e tente de novo.', 'REDE'); }
     if (resp.status === 204) return null;
@@ -125,7 +134,9 @@
     if (r.access_token) this._salvarSessao(r);
     return { precisaConfirmar: !r.access_token };
   };
+  BackendSupabase.prototype.recomecarVitrine = function () { return this.vitrine ? this._rpc('aterrisse_recomecar') : Promise.resolve(); };
   BackendSupabase.prototype.sair = async function () {
+    if (this.vitrine) return;
     var s = this._sessao();
     guardar(this.armazem, 'aterrisse_sessao', null);
     if (s) { try { await this._auth('logout', {}, s.access_token); } catch (e) { /* já saiu localmente */ } }
@@ -254,6 +265,7 @@
 
   // ---- contas da equipe: criadas no servidor (Edge Function aterrisse-contas), sem e-mail
   BackendSupabase.prototype._funcao = async function (nome, corpo) {
+    if (this.vitrine) throw Erro('Na demonstração não se criam acessos de verdade.', 'DEMO');
     var token = await this._token();
     if (!token) throw Erro('Entre de novo.', 'SEM_LOGIN');
     var resp;

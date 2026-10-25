@@ -23,7 +23,9 @@
   function bloco(loja, valor, numero, texto) {
     var c = codigo(loja, valor, numero);
     if (!c) return '';
+    var vitrine = window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE;
     return '<div class="pix-bloco"><div class="pix-titulo">Pagar com Pix · ' + N.reais(valor) + '</div>' +
+      (vitrine ? '<p class="pix-texto" style="color:#b3261e;font-weight:800">DEMONSTRAÇÃO — não pague: este QR é só para mostrar como funciona.</p>' : '') +
       (texto ? '<p class="pix-texto">' + esc(texto) + '</p>' : '') +
       '<div class="pix-qr" role="img" aria-label="QR Code do Pix de ' + N.reais(valor) + '">' + svgQr(c) + '</div>' +
       '<div class="pix-recebedor">' + esc(loja.pix_nome || loja.nome) + '</div>' +

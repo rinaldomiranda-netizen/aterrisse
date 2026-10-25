@@ -14,12 +14,12 @@ window.ATERRISSE_CONFIG = {
 };
 
 // Vitrine para apresentar ao cliente: abra qualquer tela com ?demo=1 (ex.: painel.html?demo=1).
-// Usa dados de exemplo só neste aparelho, sem senha e sem tocar no banco real. ?demo=0 volta ao normal.
+// Usa a LOJA DE DEMONSTRAÇÃO do servidor (integrada entre computador, celular e tablet), sem senha e sem tocar na loja real. ?demo=0 volta ao normal.
 (function () {
   try {
     var q = location.search;
     if (/[?&]demo=0\b/.test(q)) sessionStorage.removeItem('aterrisse_vitrine');
     else if (/[?&]demo=1\b/.test(q)) sessionStorage.setItem('aterrisse_vitrine', '1');
-    if (sessionStorage.getItem('aterrisse_vitrine') === '1') { window.ATERRISSE_CONFIG.MODO = 'demo'; window.ATERRISSE_CONFIG.VITRINE = true; }
+    if (sessionStorage.getItem('aterrisse_vitrine') === '1') { window.ATERRISSE_CONFIG.MODO = 'supabase'; window.ATERRISSE_CONFIG.VITRINE = true; }
   } catch (e) { /* sem armazenamento: segue normal */ }
 })();

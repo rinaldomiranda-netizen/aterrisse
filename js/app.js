@@ -11,28 +11,22 @@
   var api = window.AterrisseBackend.criar(window.ATERRISSE_CONFIG);
   var pagina = (location.pathname.split('/').pop() || 'index.html').slice(0, 60);
 
-  // ---- vitrine de demonstração (?demo=1): barra para trocar de tela, recomeçar e sair; ícone "DEMO" instalável
+  // ---- vitrine de demonstração (?demo=1): só um aviso "DEMONSTRAÇÃO"; cada tela mostra só a sua função, igual ao real.
+  //      "Recomeçar" fica só no painel da loja. Ícone "DEMO" instalável.
   if (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE) {
-    var tela = /painel/.test(pagina) ? 'painel' : /entregador/.test(pagina) ? 'entregador' : 'cardapio';
+    var tela = /painel/.test(pagina) ? 'painel' : /entregador/.test(pagina) ? 'entregador' : /cozinha/.test(pagina) ? 'cozinha' : 'cardapio';
     var link = document.querySelector('link[rel="manifest"]');
     if (link) link.setAttribute('href', 'manifest-demo-' + tela + '.webmanifest');
     var barra = document.createElement('div');
     barra.className = 'barra-vitrine';
     barra.setAttribute('role', 'navigation');
     barra.setAttribute('aria-label', 'Demonstração');
-    var botao = function (rot, alvo, atual) {
-      return '<a class="btn btn-peq ' + (atual ? 'btn-ouro' : 'btn-linha') + '" href="' + alvo + '"' + (atual ? ' aria-current="page"' : '') + '>' + rot + '</a>';
-    };
-    barra.innerHTML = '<span class="vitrine-titulo">🎬 DEMONSTRAÇÃO · dados de exemplo, só neste aparelho</span><span class="vitrine-botoes">' +
-      botao('Cardápio', './?demo=1', tela === 'cardapio') + botao('Painel', 'painel.html?demo=1', tela === 'painel') +
-      botao('Entregador', 'entregador.html?demo=1', tela === 'entregador') +
-      '<button class="btn btn-linha btn-peq" type="button" id="vitrine-recomecar">↺ Recomeçar</button>' +
-      '<a class="btn btn-linha btn-peq" href="?demo=0">Sair</a></span>';
+    barra.innerHTML = '<span class="vitrine-titulo">🎬 DEMONSTRAÇÃO · dados de exemplo</span>' +
+      (tela === 'painel' ? '<span class="vitrine-botoes"><button class="btn btn-linha btn-peq" type="button" id="vitrine-recomecar">↺ Recomeçar demonstração</button></span>' : '');
     document.body.insertBefore(barra, document.body.firstChild);
-    document.getElementById('vitrine-recomecar').addEventListener('click', function () {
+    if (tela === 'painel') document.getElementById('vitrine-recomecar').addEventListener('click', function () {
       if (!confirm('Recomeçar a demonstração com os pedidos de exemplo do início?')) return;
-      if (api.recomecarVitrine) api.recomecarVitrine();
-      location.reload();
+      Promise.resolve(api.recomecarVitrine ? api.recomecarVitrine() : null).then(function () { location.reload(); }, function (e) { alert(e.message || 'Não foi possível recomeçar.'); });
     });
   }
   var enviados = {}, total = 0;
