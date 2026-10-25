@@ -31,7 +31,7 @@
     }
     if (mensagem) h += '<div class="erro-caixa">' + esc(mensagem) + '</div>';
     h += '<p style="font-size:14px;color:var(--texto-2)">Use a mesma conta de desenvolvedor do RMD Ponto.</p>' +
-      '<form id="form-login"><div class="campo"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required maxlength="120"></div>' +
+      '<form id="form-login"><div class="campo"><label for="l-email">Usuário ou e-mail</label><input id="l-email" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="120"></div>' +
       '<div class="campo"><label for="l-senha">Senha</label><input id="l-senha" type="password" autocomplete="current-password" required></div>' +
       '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form></div>';
     $('#conteudo').innerHTML = h;
@@ -43,7 +43,7 @@
     var ok = false;
     try { ok = await api.souRmd(); } catch (e) { return telaLogin(e.codigo === 'REDE' ? e.message : null); }
     $('#btn-sair').classList.remove('oculto');
-    $('#quem').textContent = (api.sessao().email || '') + ' · Restaurante Aterrisse';
+    $('#quem').textContent = N.usuarioVisivel(api.sessao().email || '') + ' · Restaurante Aterrisse';
     if (!ok) {
       $('#conteudo').innerHTML = '<div class="login caixa"><h2>Sem acesso</h2><p>Esta conta não é de desenvolvedor RMD.</p></div>';
       return;
@@ -89,15 +89,17 @@
     h += '<div class="caixa"><h3 style="margin-top:0">Acessos do restaurante</h3>' + (p.equipe.length
       ? p.equipe.map(function (m) {
         return '<div class="barra-acoes" style="margin-bottom:6px;align-items:flex-start"><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>' + esc(m.nome) + '</b> · ' + esc(PAPEIS[m.papel] || m.papel) +
-          (m.ativo ? '' : ' (desativado)') + '<br><small style="color:var(--texto-2)">' + esc(m.email || '') + '</small></span>' +
+          (m.ativo ? '' : ' (desativado)') + '<br><small style="color:var(--texto-2)">' + esc(m.usuario ? 'usuário: ' + m.usuario : (m.email || '')) + '</small></span>' +
+          (m.usuario ? '<button class="btn btn-linha btn-peq" type="button" data-acao="senha" data-id="' + esc(m.user_id) + '" data-nome="' + esc(m.nome) + '">Nova senha</button>' : '') +
           '<button class="btn btn-perigo btn-peq" type="button" data-acao="tirar" data-id="' + esc(m.user_id) + '" data-nome="' + esc(m.nome) + '">Tirar acesso</button></div>';
       }).join('')
       : '<p>Ninguém tem acesso ao painel do restaurante ainda.</p>') +
-      '<h3>Dar acesso</h3><p style="font-size:13px;color:var(--texto-2)">A pessoa cria a conta no painel do restaurante (“Ainda não tenho conta”); depois você libera aqui com o mesmo e-mail.</p>' +
-      '<form id="form-acesso"><div class="campo"><label for="a-email">E-mail da conta</label><input id="a-email" type="email" required maxlength="120"></div>' +
+      '<h3>Criar acesso</h3><p style="font-size:13px;color:var(--texto-2)">Sem e-mail: escolha usuário e senha e passe para a pessoa (normalmente o dono).</p>' +
+      '<form id="form-acesso"><div class="linha-2"><div class="campo"><label for="a-usuario">Usuário</label><input id="a-usuario" required minlength="3" maxlength="30" autocapitalize="none" spellcheck="false"></div>' +
+      '<div class="campo"><label for="a-senha">Senha (mín. 6)</label><input id="a-senha" type="text" required minlength="6" maxlength="72"></div></div>' +
       '<div class="linha-2"><div class="campo"><label for="a-nome">Nome</label><input id="a-nome" required minlength="2" maxlength="80"></div>' +
       '<div class="campo"><label for="a-papel">Papel</label><select id="a-papel">' + Object.keys(PAPEIS).map(function (k) { return '<option value="' + k + '">' + PAPEIS[k] + '</option>'; }).join('') + '</select></div></div>' +
-      '<button class="btn btn-ouro btn-peq" type="submit">Dar acesso</button></form></div>';
+      '<button class="btn btn-ouro btn-peq" type="submit">Criar acesso</button></form></div>';
 
     h += '<div class="caixa"><div class="barra-acoes" style="margin:0"><h3 style="margin:0;flex:1">Erros técnicos</h3>' +
       '<label class="chk"><input type="checkbox" data-acao="ver-resolvidos"' + (st.verResolvidos ? ' checked' : '') + '> mostrar resolvidos</label>' +
@@ -120,6 +122,10 @@
     else if (a === 'tirar') {
       if (!confirm('Tirar o acesso de ' + el.dataset.nome + ' ao painel do restaurante? (a conta continua existindo, só perde o acesso)')) return;
       try { await api.rmdTirarAcesso(el.dataset.id); toast('Acesso retirado.'); carregar(); } catch (e) { alert(e.message); }
+    } else if (a === 'senha') {
+      var nova = prompt('Nova senha para ' + el.dataset.nome + ' (mínimo 6 caracteres):');
+      if (nova === null) return;
+      try { await api.trocarSenha(el.dataset.id, nova); toast('Senha trocada.'); } catch (e) { alert(e.message); }
     } else if (a === 'resolver') {
       try { await api.rmdErroResolvido(Number(el.dataset.id), el.dataset.valor === '1'); carregar(); } catch (e) { alert(e.message); }
     }
@@ -145,7 +151,7 @@
       if (antes.modo !== 'real' && c.modo === 'real' && !confirm('Passar para o modo REAL? A faixa de demonstração some e os pedidos de teste saem dos números do restaurante.')) return;
       try { await api.rmdControle(c); toast('Liberação salva.'); carregar(); } catch (e) { alert(e.message); }
     } else if (f.id === 'form-acesso') {
-      try { await api.rmdDarAcesso($('#a-email').value.trim(), $('#a-nome').value.trim(), $('#a-papel').value); toast('Acesso liberado.'); carregar(); } catch (e) { alert(e.message); }
+      try { await api.criarAcesso({ nome: $('#a-nome').value.trim(), usuario: N.normalizarUsuario($('#a-usuario').value), senha: $('#a-senha').value, papel: $('#a-papel').value }); toast('Acesso criado.'); carregar(); } catch (e) { alert(e.message); }
     }
   });
 

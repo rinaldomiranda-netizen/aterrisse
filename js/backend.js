@@ -77,7 +77,7 @@
     var j = await resp.json().catch(function () { return {}; });
     if (!resp.ok) {
       var msg = j.error_description || j.msg || j.message || 'Falha na autenticação.';
-      if (/invalid login/i.test(msg)) msg = 'E-mail ou senha incorretos.';
+      if (/invalid login/i.test(msg)) msg = 'Usuário ou senha incorretos.';
       if (/email not confirmed/i.test(msg)) msg = 'E-mail ainda não confirmado.';
       throw Erro(msg, 'AUTH');
     }
@@ -115,8 +115,9 @@
   BackendSupabase.prototype.acompanhar = function (numero, codigo) { return this._rpc('aterrisse_acompanhar', { p_numero: numero, p_codigo: codigo }); };
 
   // ---- conta
-  BackendSupabase.prototype.entrar = async function (email, senha) {
-    var r = await this._auth('token?grant_type=password', { email: email, password: senha });
+  // Entrada com usuário + senha (o usuário vira o e-mail interno; contas antigas podem usar o e-mail).
+  BackendSupabase.prototype.entrar = async function (usuarioOuEmail, senha) {
+    var r = await this._auth('token?grant_type=password', { email: N.emailEntrada(usuarioOuEmail), password: senha });
     return this._salvarSessao(r);
   };
   BackendSupabase.prototype.criarConta = async function (email, senha) {
@@ -250,6 +251,27 @@
     return this._req('POST', 'aterrisse_entregadores', linha, 'return=minimal');
   };
 
+  // ---- contas da equipe: criadas no servidor (Edge Function aterrisse-contas), sem e-mail
+  BackendSupabase.prototype._funcao = async function (nome, corpo) {
+    var token = await this._token();
+    if (!token) throw Erro('Entre de novo.', 'SEM_LOGIN');
+    var resp;
+    try {
+      resp = await fetch(this.url + '/functions/v1/' + nome, {
+        method: 'POST', headers: { apikey: this.chave, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(corpo)
+      });
+    } catch (e) { throw Erro('Sem conexão com o servidor. Verifique a internet e tente de novo.', 'REDE'); }
+    var j = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw Erro(j.mensagem || j.message || 'Erro no servidor.', j.codigo || 'ERRO');
+    return j;
+  };
+  BackendSupabase.prototype.criarAcesso = function (d) {
+    return this._funcao('aterrisse-contas', { acao: 'criar', nome: d.nome, usuario: d.usuario, senha: d.senha, papel: d.papel });
+  };
+  BackendSupabase.prototype.trocarSenha = function (userId, senha) {
+    return this._funcao('aterrisse-contas', { acao: 'senha', user_id: userId, senha: senha });
+  };
+
   // ---- erros técnicos (qualquer tela) e área do desenvolvedor RMD (sem vendas nem clientes)
   BackendSupabase.prototype.registrarErro = function (pagina, mensagem, detalhe) {
     return this._rpc('aterrisse_registrar_erro', { p_pagina: pagina, p_mensagem: mensagem, p_detalhe: detalhe || null });
@@ -267,26 +289,93 @@
   // ================================================================ Demonstração (só no navegador)
 
   var CHAVE_DEMO = 'aterrisse_demo_v1';
+  var CHAVE_VITRINE = 'aterrisse_vitrine_v1';
 
-  function BackendDemo(armazem, sessaoArmazem) {
+  // opcoes.vitrine = demonstração para apresentar ao cliente: guarda separada, entra sem senha
+  // e já vem com pedidos de exemplo (prazos, entregadores, status variados). Nada vai ao servidor.
+  function BackendDemo(armazem, sessaoArmazem, opcoes) {
     this.modo = 'demo';
+    this.vitrine = !!(opcoes && opcoes.vitrine);
+    this.chave = this.vitrine ? CHAVE_VITRINE : CHAVE_DEMO;
     this.armazem = armazem || (typeof localStorage !== 'undefined' ? localStorage : null);
     this.sessaoArmazem = sessaoArmazem || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
   }
 
   BackendDemo.prototype._estado = function () {
-    var e = this.armazem ? ler(this.armazem, CHAVE_DEMO) : null;
+    var e = this.armazem ? ler(this.armazem, this.chave) : null;
     if (!e || !e.produtos) {
       e = DadosDemo.criar();
       e.pedidos = []; e.entregadores = []; e.proximoNumero = 1; e.senhaHash = null; e.auditoria = [];
+      if (this.vitrine) semearVitrine(e, Date.now());
       this._gravar(e);
     }
     return e;
   };
-  BackendDemo.prototype._gravar = function (e) { if (this.armazem) guardar(this.armazem, CHAVE_DEMO, e); };
+  BackendDemo.prototype._gravar = function (e) { if (this.armazem) guardar(this.armazem, this.chave, e); };
   BackendDemo.prototype._exigirLogin = function () {
+    if (this.vitrine) return;
     if (!(this.sessaoArmazem && ler(this.sessaoArmazem, 'aterrisse_demo_sessao'))) throw Erro('Entre no painel primeiro.', 'SEM_PERMISSAO');
   };
+  // Recomeça a vitrine com pedidos de exemplo novos (prazos contando a partir de agora).
+  BackendDemo.prototype.recomecarVitrine = function () { if (this.armazem) guardar(this.armazem, this.chave, null); return this._estado(); };
+
+  // ---- pedidos de exemplo da vitrine
+  function itemAmostra(e, nomeProduto, qtd, extras) {
+    var p = e.produtos.filter(function (x) { return x.nome === nomeProduto; })[0];
+    var ads = [];
+    (p.grupos || []).forEach(function (g) {
+      if (g.minimo > 0) ads.push({ grupo: g.nome, nome: g.opcoes[0].nome, preco: g.opcoes[0].preco });
+      (extras || []).forEach(function (nome) {
+        g.opcoes.forEach(function (o) { if (o.nome === nome) ads.push({ grupo: g.nome, nome: o.nome, preco: o.preco }); });
+      });
+    });
+    var unit = Math.round((p.preco + ads.reduce(function (s, a) { return s + a.preco; }, 0)) * 100) / 100;
+    return { produto_id: p.id, nome: p.nome, preco_unitario: unit, quantidade: qtd, adicionais: ads, removidos: [], observacao: null, total: unit * qtd };
+  }
+
+  function semearVitrine(e, agora) {
+    var min = function (m) { return new Date(agora + m * 60000).toISOString(); };
+    e.entregadores = [
+      { id: 'ent-carlos', nome: 'Carlos Moto', telefone: '79999990001', ativo: true },
+      { id: 'ent-bruno', nome: 'Bruno Silva', telefone: '79999990002', ativo: true }
+    ];
+    var ORDEM = ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA', 'ENTREGUE'];
+    var ORDEM_LOJA = ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'CONCLUIDO'];
+    function pedido(numero, criadoMin, prazoMin, modalidade, status, nome, itens, extra) {
+      extra = extra || {};
+      var sub = itens.reduce(function (s, i) { return s + i.total; }, 0);
+      var seq = modalidade === 'entrega' ? ORDEM : ORDEM_LOJA;
+      var ate = status === 'CANCELADO' ? 1 : seq.indexOf(status) + 1;
+      var hist = seq.slice(0, ate).map(function (s, k) { return { de: k ? seq[k - 1] : null, para: s, em: min(criadoMin + k * 4) }; });
+      if (status === 'CANCELADO') hist.push({ de: 'RECEBIDO', para: 'CANCELADO', motivo: 'Cliente desistiu', em: min(criadoMin + 3) });
+      var final = ['ENTREGUE', 'CONCLUIDO', 'CANCELADO'].indexOf(status) >= 0;
+      var p = {
+        id: 'amostra-' + numero, numero: numero, acompanhamento: 'amostra-' + numero, nome: nome, telefone: extra.telefone || null,
+        modalidade: modalidade, endereco: extra.endereco || null, mesa: extra.mesa || null, observacoes: extra.observacoes || null,
+        pagamento: extra.pagamento || 'pix', troco_para: extra.troco_para || null, subtotal: sub, taxa_entrega: 0, total: sub,
+        status: status, entregador_id: extra.entregador_id || null, pagamento_status: final && status !== 'CANCELADO' ? 'CONFIRMADO' : (status === 'CANCELADO' ? 'CANCELADO' : 'PENDENTE'),
+        criado_em: min(criadoMin), atualizado_em: min(criadoMin), itens: itens, historico: hist, teste: true,
+        prazo_em: min(criadoMin + prazoMin), finalizado_em: final ? min(criadoMin + prazoMin + (extra.atrasou ? 9 : -6)) : null,
+        no_prazo: final && status !== 'CANCELADO' ? !extra.atrasou : null
+      };
+      e.pedidos.push(p);
+    }
+    var end = function (rua, numero, bairro, ref) { return { rua: rua, numero: numero, bairro: bairro, complemento: '', referencia: ref || '' }; };
+    pedido(98, -180, 30, 'retirada', 'CONCLUIDO', 'Fernanda Rocha', [itemAmostra(e, 'Quentinha G', 1, ['Tropeiro', 'Arroz branco'])], { telefone: '79988880098' });
+    pedido(99, -150, 30, 'entrega', 'ENTREGUE', 'Marcos Paulo', [itemAmostra(e, 'X-Salada', 2)], { telefone: '79988880099', endereco: end('Rua Laranjeiras', '45', 'Centro'), entregador_id: 'ent-bruno', atrasou: true });
+    pedido(100, -120, 30, 'retirada', 'CANCELADO', 'Carla Dias', [itemAmostra(e, 'Cachorro-quente', 1)], { telefone: '79988880100' });
+    pedido(101, -33, 30, 'entrega', 'PRONTO', 'Pedro Lima', [itemAmostra(e, 'Cuscuz com carne do sol e queijo coalho', 1)],
+      { telefone: '79988880101', endereco: end('Av. Augusto Franco', '2100', 'Siqueira Campos', 'Ao lado da farmácia'), entregador_id: 'ent-carlos', pagamento: 'dinheiro', troco_para: 50 });
+    pedido(102, -24, 30, 'entrega', 'EM_PREPARACAO', 'Ana Souza', [itemAmostra(e, 'Quentinha P', 1, ['Caldo / tradicional', 'Farofa']), itemAmostra(e, 'Refrigerante em lata', 1)],
+      { telefone: '79988880102', endereco: end('Rua Itabaiana', '120', 'Centro', 'Portão azul'), entregador_id: 'ent-carlos' });
+    pedido(103, -20, 30, 'entrega', 'SAIU_PARA_ENTREGA', 'Lucas Andrade', [itemAmostra(e, 'X-Bacon', 1), itemAmostra(e, 'Batata frita', 1)],
+      { telefone: '79988880103', endereco: end('Rua Siriri', '33', 'São José'), entregador_id: 'ent-bruno', pagamento: 'cartao' });
+    pedido(104, -12, 30, 'retirada', 'ACEITO', 'João Pedro', [itemAmostra(e, 'X-Burger Aterrisse', 2)], { telefone: '79988880104', observacoes: 'Um sem cebola, por favor' });
+    pedido(105, -8, 30, 'local', 'EM_PREPARACAO', 'Rita', [itemAmostra(e, 'Tapioca recheada', 1), itemAmostra(e, 'Caldinho da noite', 1)], { mesa: '4' });
+    pedido(106, -2, 30, 'entrega', 'RECEBIDO', 'Mariana Alves', [itemAmostra(e, 'Quentinha G', 2, ['Tropeiro', 'Macarrão', 'Verde'])],
+      { telefone: '79988880106', endereco: end('Rua Pacatuba', '78', 'Centro', 'Prédio verde, apto 201') });
+    e.proximoNumero = 107;
+  }
   BackendDemo.prototype._auditar = function (e, acao) {
     e.auditoria = (e.auditoria || []).concat([{ em: new Date().toISOString(), acao: acao }]).slice(-200);
   };
@@ -396,7 +485,10 @@
     return s;
   };
   BackendDemo.prototype.sair = async function () { guardar(this.sessaoArmazem, 'aterrisse_demo_sessao', null); };
-  BackendDemo.prototype.sessao = function () { return this.sessaoArmazem ? ler(this.sessaoArmazem, 'aterrisse_demo_sessao') : null; };
+  BackendDemo.prototype.sessao = function () {
+    if (this.vitrine) return { email: 'demonstração', user_id: 'demo' };
+    return this.sessaoArmazem ? ler(this.sessaoArmazem, 'aterrisse_demo_sessao') : null;
+  };
   BackendDemo.prototype.papel = async function () { return this.sessao() ? 'admin' : null; };
 
   BackendDemo.prototype.listarPedidos = async function () { this._exigirLogin(); return copia(this._estado().pedidos).reverse(); };
@@ -441,7 +533,16 @@
         observacoes: p.observacoes, criado_em: p.criado_em, itens: p.itens, prazo_em: p.prazo_em || null, entregador: ent ? ent.nome : null };
     });
   };
-  BackendDemo.prototype.minhasEntregas = async function () { this._exigirLogin(); return []; };
+  // Na vitrine, a tela do entregador mostra as entregas do primeiro entregador (Carlos Moto).
+  BackendDemo.prototype.minhasEntregas = async function () {
+    this._exigirLogin();
+    if (!this.vitrine) return [];
+    var e = this._estado(), ent = (e.entregadores || [])[0];
+    if (!ent) return [];
+    return copia(e.pedidos.filter(function (p) {
+      return p.entregador_id === ent.id && ['ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA'].indexOf(p.status) >= 0;
+    })).sort(function (a, b) { return String(a.prazo_em).localeCompare(String(b.prazo_em)); });
+  };
   BackendDemo.prototype.relatorio = async function (inicio, fim) { this._exigirLogin(); return N.relatorioPedidos(this._estado().pedidos, inicio, fim); };
 
   BackendDemo.prototype.cardapioCompleto = async function () {
@@ -506,8 +607,10 @@
     else e.entregadores.push({ id: novoId(), nome: en.nome, telefone: en.telefone || null, ativo: true });
     this._gravar(e);
   };
-  BackendDemo.prototype.apagarTudoDemo = function () { if (this.armazem) guardar(this.armazem, CHAVE_DEMO, null); };
+  BackendDemo.prototype.apagarTudoDemo = function () { if (this.armazem) guardar(this.armazem, this.chave, null); };
   BackendDemo.prototype.registrarErro = async function () { /* no modo navegador não há servidor para guardar erros */ };
+  BackendDemo.prototype.criarAcesso = async function () { throw Erro('No modo demonstração não há contas da equipe.', 'DEMO'); };
+  BackendDemo.prototype.trocarSenha = BackendDemo.prototype.criarAcesso;
   BackendDemo.prototype.souRmd = async function () { return false; };
   ['rmdPainel', 'rmdControle', 'rmdDarAcesso', 'rmdTirarAcesso', 'rmdErros', 'rmdErroResolvido'].forEach(function (n) {
     BackendDemo.prototype[n] = async function () { throw Erro('A área do desenvolvedor só funciona com o banco (MODO supabase).', 'DEMO'); };
@@ -516,7 +619,7 @@
   function criar(cfg) {
     cfg = cfg || {};
     if (cfg.MODO === 'supabase' && cfg.SUPABASE_URL && cfg.SUPABASE_CHAVE_PUBLICA) return new BackendSupabase(cfg);
-    return new BackendDemo();
+    return new BackendDemo(undefined, undefined, { vitrine: !!cfg.VITRINE });
   }
 
   return { criar: criar, BackendSupabase: BackendSupabase, BackendDemo: BackendDemo, Erro: Erro };

@@ -326,6 +326,23 @@
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t);
   }
 
+  // ------------------------------------------------------------ contas da equipe (usuário + senha, sem e-mail)
+  // Mesmo domínio interno da função aterrisse-contas (supabase/functions/aterrisse-contas/regras.js).
+  var DOMINIO_CONTAS = 'aterrisse.invalid';
+
+  function normalizarUsuario(texto) {
+    return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '').trim();
+  }
+  // O que a pessoa digita na entrada: usuário (vira o e-mail interno) ou, para contas antigas, o próprio e-mail.
+  function emailEntrada(texto) {
+    var t = String(texto || '').trim();
+    return t.indexOf('@') >= 0 ? t.toLowerCase() : normalizarUsuario(t) + '@' + DOMINIO_CONTAS;
+  }
+  function usuarioVisivel(email) {
+    var e = String(email || '');
+    return e.toLowerCase().slice(-(DOMINIO_CONTAS.length + 1)) === '@' + DOMINIO_CONTAS ? e.slice(0, e.length - DOMINIO_CONTAS.length - 1) : e;
+  }
+
   function escaparHtml(t) {
     return String(t === null || t === undefined ? '' : t).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -343,6 +360,7 @@
     linkWhatsApp: linkWhatsApp, textoResumoPedido: textoResumoPedido,
     transicaoValida: transicaoValida, proximosStatus: proximosStatus,
     resumoPedidos: resumoPedidos, relatorioPedidos: relatorioPedidos, enderecoLocal: enderecoLocal, escaparHtml: escaparHtml,
-    prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa
+    prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa,
+    DOMINIO_CONTAS: DOMINIO_CONTAS, normalizarUsuario: normalizarUsuario, emailEntrada: emailEntrada, usuarioVisivel: usuarioVisivel
   };
 });

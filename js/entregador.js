@@ -32,24 +32,21 @@
       return;
     }
     if (mensagem) h += '<div class="erro-caixa">' + esc(mensagem) + '</div>';
-    h += '<form id="form-login"><div class="campo"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required maxlength="120"></div>' +
+    h += '<form id="form-login">' + '<div class="campo"><label for="l-usuario">Usuário</label><input id="l-usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="120"></div>' +
       '<div class="campo"><label for="l-senha">Senha</label><input id="l-senha" type="password" autocomplete="current-password" required></div>' +
       '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form>' +
-      '<details style="margin-top:16px"><summary>Ainda não tenho conta</summary><p style="font-size:14px;color:var(--texto-2)">Crie a sua conta e peça ao restaurante para liberar você como entregador (Painel → Equipe).</p>' +
-      '<form id="form-conta"><div class="campo"><label for="c-email">E-mail</label><input id="c-email" type="email" required maxlength="120"></div>' +
-      '<div class="campo"><label for="c-senha">Senha (mínimo 8, com letras e números)</label><input id="c-senha" type="password" autocomplete="new-password" minlength="8" required></div>' +
-      '<button class="btn btn-linha btn-bloco" type="submit">Criar minha conta</button></form></details>' +
+      '<p style="font-size:14px;color:var(--texto-2);margin-top:14px">Sem acesso ou esqueceu a senha? Peça ao restaurante: o dono cria o seu usuário e a senha no painel.</p>' +
       '<p style="font-size:13px;color:var(--texto-2);margin-top:14px">Dica: no Chrome, toque em ⋮ → “Adicionar à tela inicial” para abrir como aplicativo.</p></div>';
     $('#conteudo').innerHTML = h;
   }
 
   async function iniciar() {
-    if (api.modo === 'demo' || !api.sessao()) return telaLogin();
+    if ((api.modo === 'demo' && !api.vitrine) || !api.sessao()) return telaLogin();
     var papel = null;
     try { papel = await api.papel(); } catch (e) { return telaLogin(e.codigo === 'REDE' ? e.message : null); }
     $('#btn-sair').classList.remove('oculto');
-    $('#quem').textContent = (api.sessao().email || '') + ' · Restaurante Aterrisse';
-    if (papel !== 'entregador') {
+    $('#quem').textContent = N.usuarioVisivel(api.sessao().email || '') + ' · Restaurante Aterrisse';
+    if (papel !== 'entregador' && !api.vitrine) { // na vitrine a tela mostra as entregas do entregador de exemplo
       $('#conteudo').innerHTML = '<div class="login caixa"><h2>Sem acesso</h2><p>' + (papel
         ? 'Esta conta é da equipe do restaurante. Use o <a href="painel.html">painel</a>.'
         : 'Sua conta ainda não foi liberada como entregador. Peça ao restaurante (Painel → Equipe).') + '</p></div>';
@@ -126,15 +123,7 @@
   document.addEventListener('submit', async function (ev) {
     ev.preventDefault();
     if (ev.target.id === 'form-login') {
-      try { await api.entrar($('#l-email').value.trim(), $('#l-senha').value); iniciar(); } catch (e) { telaLogin(e.message); }
-    } else if (ev.target.id === 'form-conta') {
-      var s = $('#c-senha').value;
-      if (s.length < 8 || !/[a-z]/i.test(s) || !/\d/.test(s)) { alert('A senha precisa ter 8 ou mais caracteres, com letras e números.'); return; }
-      try {
-        var r = await api.criarConta($('#c-email').value.trim(), s);
-        alert(r.precisaConfirmar ? 'Conta criada. Confirme pelo e-mail e peça ao restaurante para liberar você.' : 'Conta criada. Peça ao restaurante para liberar você como entregador.');
-        iniciar();
-      } catch (e) { alert(e.message); }
+      try { await api.entrar($('#l-usuario').value.trim(), $('#l-senha').value); iniciar(); } catch (e) { telaLogin(e.message); }
     }
   });
 

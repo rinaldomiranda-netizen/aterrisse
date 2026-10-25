@@ -67,7 +67,7 @@
 
   function renderFaixas() {
     var h = '';
-    if (api.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — os pedidos ficam só neste aparelho e NÃO chegam ao restaurante.</div>';
+    if (api.modo === 'demo' && !(window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE)) h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — os pedidos ficam só neste aparelho e NÃO chegam ao restaurante.</div>';
     if (horaSimulada) h += '<div class="faixa faixa-aviso">🕒 Hora simulada: ' + esc(horaSimulada) + ' (Maceió). Tire “?simular_hora” do endereço para voltar ao normal.</div>';
     var l = estado.cardapio && estado.cardapio.loja;
     if (api.modo !== 'demo' && l && l.modo === 'demo' && l.liberada !== false) h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração — os pedidos chegam ao painel marcados como TESTE. Preços com “Exemplo” são fictícios.</div>';

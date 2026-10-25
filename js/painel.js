@@ -30,7 +30,7 @@
 
   function renderFaixas() {
     var l = st.lojaPub, h = '';
-    if (api.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — dados só neste navegador. Nada aqui é o servidor do restaurante.</div>';
+    if (api.modo === 'demo' && !api.vitrine) h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — dados só neste navegador. Nada aqui é o servidor do restaurante.</div>';
     else if (l && l.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração: os pedidos chegam marcados como TESTE.</div>';
     if (l && l.liberada === false) h += '<div class="faixa faixa-fechado" role="alert">Loja suspensa: o cardápio está indisponível para os clientes. Fale com a RMD.</div>';
     $('#faixas').innerHTML = h;
@@ -64,13 +64,10 @@
           '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form>';
       }
     } else {
-      h += '<form id="form-login" data-tipo="entrar"><div class="campo"><label for="l-email">E-mail</label><input id="l-email" type="email" autocomplete="username" required maxlength="120"></div>' +
+      h += '<form id="form-login" data-tipo="entrar">' + '<div class="campo"><label for="l-usuario">Usuário</label><input id="l-usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="120"></div>' +
         '<div class="campo"><label for="l-senha">Senha</label><input id="l-senha" type="password" autocomplete="current-password" required></div>' +
         '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form>' +
-        '<details style="margin-top:16px"><summary>Ainda não tenho conta</summary><p style="font-size:14px;color:var(--texto-2)">Crie a sua conta abaixo. Depois peça ao administrador do Aterrisse para liberar o seu acesso (Painel → Equipe). Sem essa liberação a conta não vê nada.</p>' +
-        '<form id="form-conta"><div class="campo"><label for="c-email">E-mail</label><input id="c-email" type="email" required maxlength="120"></div>' +
-        '<div class="campo"><label for="c-senha">Senha (mínimo 8, com letras e números)</label><input id="c-senha" type="password" autocomplete="new-password" minlength="8" required></div>' +
-        '<button class="btn btn-linha btn-bloco" type="submit">Criar minha conta</button></form></details>';
+        '<p style="font-size:14px;color:var(--texto-2);margin-top:14px">Não tem acesso ou esqueceu a senha? Peça ao dono do restaurante: ele cria o seu usuário e define uma senha nova no painel (Equipe).</p>';
     }
     h += '</div>';
     $('#conteudo').innerHTML = h;
@@ -95,7 +92,7 @@
     renderFaixas();
     window.AterrissePrazo.aoAtrasar(function (id, numero) { bip(); toast('⚠ Pedido #' + numero + ' passou do prazo!'); });
     var s = api.sessao() || {};
-    $('#quem').textContent = (s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
+    $('#quem').textContent = N.usuarioVisivel(s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
     $('#btn-sair').classList.remove('oculto');
     var abas = abasLiberadas();
     var pedida = (location.hash || '').slice(1);
@@ -715,15 +712,17 @@
     else {
       h += '<div class="caixa"><h3 style="margin-top:0">Pessoas com acesso</h3>' + (st.equipe.length ? '<div class="rolagem-x"><table class="tabela"><thead><tr><th>Nome</th><th>Papel</th><th>Ativo</th></tr></thead><tbody>' +
         st.equipe.map(function (m) {
-          return '<tr><td>' + esc(m.nome) + '</td><td><select data-acao="papel-membro" data-id="' + esc(m.user_id) + '" aria-label="Papel de ' + esc(m.nome) + '">' + Object.keys(NOMES_PAPEL).map(function (p) {
+          return '<tr><td>' + esc(m.nome) + (m.usuario ? '<br><small style="color:var(--texto-2)">usuário: ' + esc(m.usuario) + '</small>' : '') +
+            (m.usuario ? '<br><button class="btn btn-linha btn-peq" type="button" data-acao="trocar-senha" data-id="' + esc(m.user_id) + '" data-nome="' + esc(m.nome) + '" style="margin-top:4px">Nova senha</button>' : '') + '</td><td><select data-acao="papel-membro" data-id="' + esc(m.user_id) + '" aria-label="Papel de ' + esc(m.nome) + '">' + Object.keys(NOMES_PAPEL).map(function (p) {
             return '<option value="' + p + '"' + (m.papel === p ? ' selected' : '') + '>' + NOMES_PAPEL[p] + '</option>'; }).join('') + '</select></td>' +
             '<td><input type="checkbox" data-acao="ativo-membro" data-id="' + esc(m.user_id) + '"' + (m.ativo ? ' checked' : '') + ' aria-label="Ativo"></td></tr>';
         }).join('') + '</tbody></table></div>' : '<p>Ninguém além de você.</p>') +
-        '<h3>Liberar acesso</h3><p style="font-size:13px;color:var(--texto-2)">A pessoa cria a conta em “Ainda não tenho conta” na tela de entrada; depois você libera aqui com o mesmo e-mail.</p>' +
-        '<form id="form-membro"><div class="campo"><label for="m-email">E-mail da conta</label><input id="m-email" type="email" required maxlength="120"></div>' +
-        '<div class="linha-2"><div class="campo"><label for="m-nome">Nome</label><input id="m-nome" required minlength="2" maxlength="80"></div>' +
+        '<h3>Criar acesso</h3><p style="font-size:13px;color:var(--texto-2)">Sem e-mail: você escolhe o usuário e a senha e passa para a pessoa. Ela entra com eles no painel (ou na tela do entregador).</p>' +
+        '<form id="form-membro"><div class="linha-2"><div class="campo"><label for="m-nome">Nome</label><input id="m-nome" required minlength="2" maxlength="80"></div>' +
         '<div class="campo"><label for="m-papel">Papel</label><select id="m-papel">' + Object.keys(NOMES_PAPEL).map(function (p) { return '<option value="' + p + '"' + (p === 'atendente' ? ' selected' : '') + '>' + NOMES_PAPEL[p] + '</option>'; }).join('') + '</select></div></div>' +
-        '<button class="btn btn-ouro btn-peq" type="submit">Liberar acesso</button></form></div>';
+        '<div class="linha-2"><div class="campo"><label for="m-usuario">Usuário</label><input id="m-usuario" required minlength="3" maxlength="30" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ex.: maria"><span class="ajuda">Sem acento e sem espaço.</span></div>' +
+        '<div class="campo"><label for="m-senha">Senha</label><input id="m-senha" type="text" required minlength="6" maxlength="72" autocomplete="new-password"><span class="ajuda">Mínimo 6 caracteres.</span></div></div>' +
+        '<button class="btn btn-ouro btn-peq" type="submit">Criar acesso</button></form></div>';
     }
     h += '<div class="caixa"><h3 style="margin-top:0">Entregadores</h3>' + (st.entregadores.length ? st.entregadores.map(function (e) {
       return '<div class="barra-acoes" style="margin-bottom:6px"><span style="flex:1">🛵 ' + esc(e.nome) + (e.telefone ? ' · ' + esc(e.telefone) : '') + (e.user_id ? ' · tem login' : '') + (e.ativo === false ? ' (inativo)' : '') + '</span>' +
@@ -794,6 +793,12 @@
       await tentar(function () { return api.salvarLoja({ url_publica: u }); }, 'Endereço salvo.');
       st.adm.loja.url_publica = u;
     }
+    else if (a === 'trocar-senha') {
+      var nova = prompt('Nova senha para ' + el.dataset.nome + ' (mínimo 6 caracteres):');
+      if (nova === null) return;
+      if (nova.length < 6) { alert('A senha precisa ter pelo menos 6 caracteres.'); return; }
+      await tentar(function () { return api.trocarSenha(id, nova); }, 'Senha trocada. Passe a senha nova para a pessoa.');
+    }
     else if (a === 'ativo-entregador') {
       var en = st.entregadores.filter(function (x) { return x.id === id; })[0];
       await tentar(function () { return api.salvarEntregador({ id: en.id, nome: en.nome, telefone: en.telefone, ativo: en.ativo === false }); });
@@ -842,17 +847,9 @@
         if (f.dataset.tipo === 'criar') {
           if (senha !== $('#l-senha2').value) { telaLogin('As senhas não são iguais.'); return; }
           await api.criarConta(null, senha);
-        } else await api.entrar(api.modo === 'demo' ? null : $('#l-email').value.trim(), senha);
+        } else await api.entrar(api.modo === 'demo' ? null : $('#l-usuario').value.trim(), senha);
         iniciar();
       } catch (e) { telaLogin(e.message); }
-    } else if (f.id === 'form-conta') {
-      var s = $('#c-senha').value;
-      if (s.length < 8 || !/[a-z]/i.test(s) || !/\d/.test(s)) { alert('A senha precisa ter 8 ou mais caracteres, com letras e números.'); return; }
-      try {
-        var r = await api.criarConta($('#c-email').value.trim(), s);
-        alert(r.precisaConfirmar ? 'Conta criada. Confirme pelo e-mail que o Supabase enviou e peça ao administrador para liberar o acesso.' : 'Conta criada. Peça ao administrador para liberar o seu acesso.');
-        iniciar();
-      } catch (e) { alert(e.message); }
     } else if (f.id === 'form-categoria') {
       var c = { id: f.dataset.id, nome: $('#c-nome').value.trim(), slug: $('#c-slug').value.trim(), descricao: $('#c-desc').value.trim() || null,
         icone: $('#c-icone').value.trim() || null, ordem: Number($('#c-ordem').value) || 0, ativa: $('#c-ativa').checked };
@@ -886,7 +883,11 @@
       st.rel = await tentar(function () { return api.relatorio(st.relIni, st.relFim); });
       render();
     } else if (f.id === 'form-membro') {
-      await tentar(function () { return api.adicionarEquipe($('#m-email').value.trim(), $('#m-nome').value.trim(), $('#m-papel').value); }, 'Acesso liberado.');
+      var novo = { nome: $('#m-nome').value.trim(), usuario: N.normalizarUsuario($('#m-usuario').value), senha: $('#m-senha').value, papel: $('#m-papel').value };
+      if (!/^[a-z0-9._-]{3,30}$/.test(novo.usuario)) { alert('Usuário com 3 a 30 letras ou números, sem acento e sem espaço.'); return; }
+      if (novo.senha.length < 6) { alert('A senha precisa ter pelo menos 6 caracteres.'); return; }
+      await tentar(function () { return api.criarAcesso(novo); });
+      alert('Acesso criado.\n\nUsuário: ' + novo.usuario + '\nSenha: a que você digitou\n\nEntrada: ' + location.href.replace(/painel\.html.*$/, '') + (novo.papel === 'entregador' ? 'entregador.html' : 'painel.html'));
       irPara('equipe');
     } else if (f.id === 'form-entregador') {
       var tel = N.soDigitos($('#e-tel').value);

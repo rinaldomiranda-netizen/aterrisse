@@ -10,6 +10,31 @@
   if (!window.AterrisseBackend) return;
   var api = window.AterrisseBackend.criar(window.ATERRISSE_CONFIG);
   var pagina = (location.pathname.split('/').pop() || 'index.html').slice(0, 60);
+
+  // ---- vitrine de demonstração (?demo=1): barra para trocar de tela, recomeçar e sair; ícone "DEMO" instalável
+  if (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.VITRINE) {
+    var tela = /painel/.test(pagina) ? 'painel' : /entregador/.test(pagina) ? 'entregador' : 'cardapio';
+    var link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute('href', 'manifest-demo-' + tela + '.webmanifest');
+    var barra = document.createElement('div');
+    barra.className = 'barra-vitrine';
+    barra.setAttribute('role', 'navigation');
+    barra.setAttribute('aria-label', 'Demonstração');
+    var botao = function (rot, alvo, atual) {
+      return '<a class="btn btn-peq ' + (atual ? 'btn-ouro' : 'btn-linha') + '" href="' + alvo + '"' + (atual ? ' aria-current="page"' : '') + '>' + rot + '</a>';
+    };
+    barra.innerHTML = '<span class="vitrine-titulo">🎬 DEMONSTRAÇÃO · dados de exemplo, só neste aparelho</span><span class="vitrine-botoes">' +
+      botao('Cardápio', './?demo=1', tela === 'cardapio') + botao('Painel', 'painel.html?demo=1', tela === 'painel') +
+      botao('Entregador', 'entregador.html?demo=1', tela === 'entregador') +
+      '<button class="btn btn-linha btn-peq" type="button" id="vitrine-recomecar">↺ Recomeçar</button>' +
+      '<a class="btn btn-linha btn-peq" href="?demo=0">Sair</a></span>';
+    document.body.insertBefore(barra, document.body.firstChild);
+    document.getElementById('vitrine-recomecar').addEventListener('click', function () {
+      if (!confirm('Recomeçar a demonstração com os pedidos de exemplo do início?')) return;
+      if (api.recomecarVitrine) api.recomecarVitrine();
+      location.reload();
+    });
+  }
   var enviados = {}, total = 0;
 
   function enviar(mensagem, detalhe) {

@@ -213,3 +213,11 @@ img { max-width: 100%; display: block; }
 .prazo.alerta { background: #4a3508; color: #ffe08a; }
 .prazo.atrasado { background: #7a1e14; color: #fff; animation: piscar 1.2s infinite; }
 @keyframes piscar { 50% { opacity: .6; } }
+
+/* ---------- vitrine de demonstração (?demo=1) */
+.barra-vitrine { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: center; padding: 8px 12px; background: #ffc107; color: #141210; }
+.barra-vitrine .vitrine-titulo { font-weight: 900; font-size: 13px; text-align: center; }
+.barra-vitrine .vitrine-botoes { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.barra-vitrine .btn-linha { border-color: #141210; color: #141210; background: rgba(255, 255, 255, .35); }
+.barra-vitrine .btn-ouro { background: #141210; color: #ffc107; }
+.barra-vitrine .btn { min-height: 34px; }
