@@ -269,8 +269,13 @@
       '<div class="totais"><div><span>Subtotal</span><span>' + N.reais(p.subtotal) + '</span></div><div><span>Taxa</span><span>' + N.reais(p.taxa_entrega) + '</span></div><div class="total"><span>Total</span><span>' + N.reais(p.total) + '</span></div></div></div>';
     var pag = ((st.adm && st.adm.loja.pagamentos) || (st.lojaPub && st.lojaPub.pagamentos) || []).filter(function (x) { return x.id === p.pagamento; })[0];
     h += '<div class="resumo-bloco"><h3>Pagamento</h3><div>' + esc(pag ? pag.nome : p.pagamento) + (p.troco_para ? ' · troco para ' + N.reais(p.troco_para) + ' (levar ' + N.reais(p.troco_para - p.total) + ')' : '') + '</div>' +
-      '<div>Situação: <b>' + (p.pagamento_status === 'CONFIRMADO' ? 'recebido ✔' : p.pagamento_status === 'CANCELADO' ? 'cancelado' : 'a receber') + '</b></div>' +
-      (p.pagamento_status === 'PENDENTE' ? '<button class="btn btn-linha btn-peq" type="button" data-acao="confirmar-pagamento" data-id="' + esc(p.id) + '" style="margin-top:6px">Marcar pagamento como recebido</button>' : '') + '</div>';
+      '<div>Situação: <b>' + (p.pagamento_status === 'CONFIRMADO' ? 'recebido ✔' + (p.pago_como ? ' (' + esc(({ pix: 'Pix', dinheiro: 'dinheiro', cartao: 'cartão' })[p.pago_como] || p.pago_como) + ')' : '') : p.pagamento_status === 'CANCELADO' ? 'cancelado' : 'a receber') + '</b></div>' +
+      (p.pagamento_status === 'PENDENTE' ? '<div style="margin-top:8px;font-size:14px">Recebido em:</div><div class="barra-acoes" style="margin:4px 0 0">' +
+        [['dinheiro', '💵 Dinheiro'], ['cartao', '💳 Cartão'], ['pix', '📱 Pix']].map(function (f) {
+          return '<button class="btn btn-linha btn-peq" type="button" data-acao="confirmar-pagamento" data-id="' + esc(p.id) + '" data-forma="' + f[0] + '">' + f[1] + '</button>';
+        }).join('') + '</div>' +
+        (window.AterrissePix && (st.lojaPub || {}).pix_chave ? '<button class="btn btn-linha btn-peq" type="button" data-acao="pix-pedido" data-id="' + esc(p.id) + '" style="margin-top:6px">' + (st.pixAberto === p.id ? 'Esconder QR do Pix' : '📱 Mostrar QR do Pix') + '</button>' +
+          (st.pixAberto === p.id ? window.AterrissePix.bloco(st.lojaPub, Number(p.total), p.numero, 'Mostre ao cliente no balcão ou na mesa.') : '') : '') : '') + '</div>';
     if (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0) {
       h += '<div class="campo"><label for="sel-entregador">Entregador</label><select id="sel-entregador" data-acao="entregador" data-id="' + esc(p.id) + '"><option value="">— sem entregador —</option>' +
         st.entregadores.filter(function (e) { return e.ativo !== false; }).map(function (e) { return '<option value="' + esc(e.id) + '"' + (p.entregador_id === e.id ? ' selected' : '') + '>' + esc(e.nome) + '</option>'; }).join('') +
@@ -554,6 +559,10 @@
         return '<div class="opcao-editor" style="grid-template-columns:1fr auto"><input type="text" data-pag="' + i + '" data-campo="nome" maxlength="40" value="' + esc(p.nome) + '" aria-label="Nome da forma de pagamento">' +
           '<label class="chk"><input type="checkbox" data-pag="' + i + '" data-campo="ativo"' + (p.ativo !== false ? ' checked' : '') + '> ativa</label></div>';
       }).join('') + '</div><div class="barra-acoes"><input class="entrada" id="novo-pag" maxlength="40" placeholder="Outra forma (ex.: Vale-refeição)"><button class="btn btn-linha btn-peq" type="button" data-acao="mais-pag">+ Adicionar</button></div></div>';
+    h += '<div class="caixa"><h3 style="margin-top:0">Pix do restaurante</h3><p style="font-size:13px;color:var(--texto-2)">O cardápio e o entregador mostram um QR Code com o valor do pedido para esta chave. O site não confirma pagamentos: a equipe ou o entregador marcam "recebido".</p>' +
+      '<div class="campo"><label for="lj-pixchave">Chave Pix (telefone, e-mail, CPF/CNPJ ou chave aleatória)</label><input id="lj-pixchave" maxlength="77" value="' + esc(l.pix_chave || '') + '"><span class="ajuda">Telefone: escreva com DDD, ex.: 79996899727. Vazio = sem QR do Pix.</span></div>' +
+      '<div class="linha-2"><div class="campo"><label for="lj-pixnome">Nome do recebedor</label><input id="lj-pixnome" maxlength="25" value="' + esc(l.pix_nome || '') + '"></div>' +
+      '<div class="campo"><label for="lj-pixcidade">Cidade</label><input id="lj-pixcidade" maxlength="15" value="' + esc(l.pix_cidade || '') + '"></div></div></div>';
     h += '<div class="caixa"><div class="campo"><label for="lj-url">Endereço público do cardápio (para o QR Code)</label><input id="lj-url" maxlength="300" placeholder="https://…" value="' + esc(l.url_publica || '') + '"></div></div>';
     h += '<button class="btn btn-ouro" type="submit">Salvar configurações</button></form>';
     return h;
@@ -621,7 +630,8 @@
       taxa_entrega: Number(v('lj-taxa').value) || 0, pedido_minimo: Number(v('lj-min').value) || 0,
       previsao_entrega_min: v('lj-pent').value ? Number(v('lj-pent').value) : null, previsao_retirada_min: v('lj-pret').value ? Number(v('lj-pret').value) : null,
       previsao_local_min: v('lj-ploc').value ? Number(v('lj-ploc').value) : null,
-      mesa_modo: v('lj-mesa').value, pagamentos: l.pagamentos, url_publica: v('lj-url').value.trim() || null
+      mesa_modo: v('lj-mesa').value, pagamentos: l.pagamentos, url_publica: v('lj-url').value.trim() || null,
+      pix_chave: v('lj-pixchave').value.trim() || null, pix_nome: v('lj-pixnome').value.trim() || null, pix_cidade: v('lj-pixcidade').value.trim() || null
     };
   }
 
@@ -748,9 +758,12 @@
     else if (a === 'filtro') { st.filtro = el.dataset.filtro; render(); }
     else if (a === 'abrir-pedido') { if (!st.entregadores.length && st.papel !== 'cozinha') { try { st.entregadores = await api.listarEntregadores(); } catch (e) { /* segue */ } } abrirPedido(id); }
     else if (a === 'status') mudarStatus(id, el.dataset.para);
+    else if (a === 'pix-pedido') { st.pixAberto = st.pixAberto === id ? null : id; atualizarJanelaPedido(); }
     else if (a === 'confirmar-pagamento') {
-      if (!confirm('Confirmar que o pagamento deste pedido foi recebido?')) return;
-      await tentar(function () { return api.confirmarPagamento(id); }, 'Pagamento marcado como recebido.');
+      var formaNome = ({ pix: 'Pix', dinheiro: 'dinheiro', cartao: 'cartão' })[el.dataset.forma] || 'a forma do pedido';
+      if (!confirm('Confirmar que o pagamento deste pedido foi recebido em ' + formaNome + '?')) return;
+      await tentar(function () { return api.confirmarPagamento(id, el.dataset.forma); }, 'Pagamento marcado como recebido.');
+      st.pixAberto = null;
       await carregarAba(st.aba); atualizarJanelaPedido();
     }
     else if (a === 'novo-produto') editorProduto(null);

@@ -221,3 +221,13 @@ img { max-width: 100%; display: block; }
 .barra-vitrine .btn-linha { border-color: #141210; color: #141210; background: rgba(255, 255, 255, .35); }
 .barra-vitrine .btn-ouro { background: #141210; color: #ffc107; }
 .barra-vitrine .btn { min-height: 34px; }
+
+/* ---------- Pix */
+.pix-bloco { background: #fffaf0; color: #1b1206; border-radius: 14px; padding: 14px; margin: 12px 0; text-align: center; }
+.pix-titulo { font-weight: 900; font-size: 18px; }
+.pix-texto { font-size: 13px; margin: 6px 0; color: #4a3b2a; }
+.pix-qr { background: #fff; border-radius: 10px; padding: 6px; margin: 8px auto; max-width: 230px; }
+.pix-qr svg { width: 100%; height: auto; display: block; }
+.pix-recebedor { font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+.pix-rotulo { display: block; font-size: 12px; font-weight: 800; text-align: left; margin-bottom: 4px; }
+.pix-codigo { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 11px; word-break: break-all; border: 1px solid #d9c9a8; border-radius: 8px; padding: 6px; background: #fff; color: #1b1206; resize: none; margin-bottom: 8px; }

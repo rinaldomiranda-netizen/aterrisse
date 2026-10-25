@@ -74,11 +74,11 @@
         horario_funcionamento: null, aceita_entrega: true, aceita_retirada: true, aceita_local: true,
         taxa_entrega: 0, pedido_minimo: 0, mesa_modo: 'opcional', previsao_retirada_min: 30, previsao_entrega_min: 30, previsao_local_min: 30,
         pagamentos: [
-          { id: 'pix', nome: 'Pix (combinado com o restaurante)', ativo: true },
-          { id: 'dinheiro', nome: 'Dinheiro', ativo: true },
-          { id: 'cartao', nome: 'Cartão na entrega/retirada', ativo: true }
+          { id: 'pix', nome: 'Pix (QR Code na tela ou na entrega)', ativo: true },
+          { id: 'dinheiro', nome: 'Dinheiro (paga ao entregador ou no balcão)', ativo: true },
+          { id: 'cartao', nome: 'Cartão (maquininha na entrega ou no balcão)', ativo: true }
         ],
-        url_publica: null
+        url_publica: null, pix_chave: '+5579996899727', pix_nome: 'RESTAURANTE ATERRISSE', pix_cidade: 'ARACAJU'
       },
       destaques: [
         { periodo: 'almoco', titulo: 'Almoço', inicio: '06:00', fim: '14:59', categorias: ['almoco'], ordem: 1, ativo: true },

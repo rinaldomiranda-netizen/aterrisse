@@ -28,7 +28,7 @@
     'ativo', 'destaque', 'demonstracao', 'ingredientes_removiveis', 'permite_observacao', 'ordem'];
   var CAMPOS_CATEGORIA = ['slug', 'nome', 'descricao', 'icone', 'ordem', 'ativa'];
   var CAMPOS_LOJA = ['nome', 'logo_url', 'whatsapp', 'aberto', 'aviso', 'horario_funcionamento', 'aceita_entrega', 'aceita_retirada',
-    'aceita_local', 'taxa_entrega', 'pedido_minimo', 'mesa_modo', 'previsao_retirada_min', 'previsao_entrega_min', 'previsao_local_min',
+    'aceita_local', 'taxa_entrega', 'pedido_minimo', 'mesa_modo', 'previsao_retirada_min', 'previsao_entrega_min', 'previsao_local_min', 'pix_chave', 'pix_nome', 'pix_cidade',
     'pagamentos', 'url_publica'];
   var ABERTOS = 'RECEBIDO,ACEITO,EM_PREPARACAO,PRONTO,SAIU_PARA_ENTREGA';
 
@@ -143,19 +143,20 @@
     r.itens = itens.map(function (i) { i.preco_unitario = Number(i.preco_unitario); i.total = Number(i.total); return i; });
     r.historico = hist;
     r.pagamento_status = pag ? pag.status : (p.pagamento_status || 'PENDENTE');
+    r.pago_como = pag && pag.status === 'CONFIRMADO' ? pag.forma : (p.pago_como || null);
     ['subtotal', 'taxa_entrega', 'total', 'troco_para'].forEach(function (k) { if (r[k] !== null && r[k] !== undefined) r[k] = Number(r[k]); });
     return r;
   }
 
   BackendSupabase.prototype.listarPedidos = async function (dias) {
     var desde = new Date(Date.now() - (dias || 2) * 86400000).toISOString();
-    var lista = await this._req('GET', 'aterrisse_pedidos?select=*,aterrisse_pedido_itens(*),aterrisse_pagamentos(status),aterrisse_pedido_status_hist(de,para,motivo,em)' +
+    var lista = await this._req('GET', 'aterrisse_pedidos?select=*,aterrisse_pedido_itens(*),aterrisse_pagamentos(status,forma,confirmado_em),aterrisse_pedido_status_hist(de,para,motivo,em)' +
       '&or=(criado_em.gte.' + encodeURIComponent(desde) + ',status.in.(' + ABERTOS + '))&order=criado_em.desc&limit=300');
     return lista.map(normalizarPedido);
   };
   BackendSupabase.prototype.mudarStatus = function (id, para, motivo) { return this._rpc('aterrisse_mudar_status', { p_pedido: id, p_para: para, p_motivo: motivo || null }); };
   BackendSupabase.prototype.atribuirEntregador = function (id, entregador) { return this._rpc('aterrisse_atribuir_entregador', { p_pedido: id, p_entregador: entregador || null }); };
-  BackendSupabase.prototype.confirmarPagamento = function (id) { return this._rpc('aterrisse_confirmar_pagamento', { p_pedido: id }); };
+  BackendSupabase.prototype.confirmarPagamento = function (id, forma) { return this._rpc('aterrisse_confirmar_pagamento', { p_pedido: id, p_forma: forma || null }); };
   BackendSupabase.prototype.filaCozinha = function () { return this._rpc('aterrisse_fila_cozinha'); };
   BackendSupabase.prototype.minhasEntregas = function () { return this._rpc('aterrisse_minhas_entregas'); };
   BackendSupabase.prototype.relatorio = function (inicio, fim) { return this._rpc('aterrisse_relatorio', { p_inicio: inicio, p_fim: fim }); };
@@ -401,6 +402,11 @@
   // Mesmas regras de aterrisse_criar_pedido (servidor).
   BackendDemo.prototype.criarPedido = async function (dados) {
     var e = this._estado();
+    var repetido = dados.chave_envio && e.pedidos.filter(function (x) { return x.chave_envio === dados.chave_envio; })[0];
+    if (repetido) {
+      return { numero: repetido.numero, acompanhamento: repetido.acompanhamento, status: repetido.status, subtotal: repetido.subtotal,
+        taxa_entrega: repetido.taxa_entrega, total: repetido.total, criado_em: repetido.criado_em, itens: repetido.itens, prazo_em: repetido.prazo_em, repetido: true };
+    }
     var c = await this.cardapio();
     if (!e.loja.aberto) throw Erro('O restaurante não está recebendo pedidos agora.', 'LOJA_FECHADA');
     var erros = N.validarCheckout(dados, c.loja);
@@ -445,7 +451,7 @@
       observacoes: String(dados.observacoes || '').trim() || null, pagamento: dados.pagamento, troco_para: troco,
       subtotal: sub, taxa_entrega: taxa, total: total, status: 'RECEBIDO', entregador_id: null, pagamento_status: 'PENDENTE',
       criado_em: agora, atualizado_em: agora, itens: linhas, historico: [{ de: null, para: 'RECEBIDO', em: agora }],
-      prazo_em: prazo, finalizado_em: null, no_prazo: null
+      prazo_em: prazo, finalizado_em: null, no_prazo: null, chave_envio: dados.chave_envio || null
     };
     e.pedidos.push(pedido);
     this._gravar(e);
@@ -516,12 +522,13 @@
     p.entregador_id = entregador || null;
     this._gravar(e);
   };
-  BackendDemo.prototype.confirmarPagamento = async function (id) {
+  BackendDemo.prototype.confirmarPagamento = async function (id, forma) {
     this._exigirLogin();
     var e = this._estado();
     var p = e.pedidos.filter(function (x) { return x.id === id; })[0];
     if (!p || p.pagamento_status !== 'PENDENTE') throw Erro('Não há pagamento pendente neste pedido.', 'PAGAMENTO_INVALIDO');
     p.pagamento_status = 'CONFIRMADO';
+    p.pago_como = forma || p.pagamento;
     this._gravar(e);
   };
   BackendDemo.prototype.filaCozinha = async function () {

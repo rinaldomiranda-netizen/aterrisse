@@ -481,15 +481,16 @@
       mesa: f.modalidade === 'local' ? (f.mesa || '').trim() : '',
       endereco: f.modalidade === 'entrega' ? f.endereco : null,
       troco_para: f.pagamento === 'dinheiro' && f.troco ? Number(String(f.troco).replace(/\./g, '').replace(',', '.')) : null,
+      chave_envio: f.chave_envio, // o mesmo envio repetido (clique duplo, internet voltando) vira um pedido só
       itens: estado.sacola.map(function (i) { return { produto_id: i.produto_id, quantidade: i.quantidade, adicionais: i.adicionais, removidos: i.removidos, observacao: i.observacao }; })
     };
     try {
       var r = await api.criarPedido(dados);
-      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste, prazo_em: r.prazo_em || null };
+      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste, prazo_em: r.prazo_em || null, pagamento: f.pagamento };
       estado.ultimo = { numero: r.numero, acompanhamento: r.acompanhamento, criado_em: r.criado_em, demo: api.modo === 'demo' };
       gravarLocal('aterrisse_ultimo_pedido', estado.ultimo);
       estado.sacola = []; salvarSacola();
-      estado.form.observacoes = ''; gravarSessao('aterrisse_form', estado.form);
+      estado.form.observacoes = ''; estado.form.chave_envio = null; gravarSessao('aterrisse_form', estado.form);
       estado.etapa = 'enviado';
       iniciarAcompanhamento();
     } catch (e) {
@@ -521,6 +522,10 @@
         '<b>' + esc(N.horaCurta(p.prazo_em)) + '</b></p>';
     }
     h += '<p><b>Total: ' + N.reais(p.total) + '</b></p>';
+    if (p.pagamento === 'pix' && !p.demo && ['CANCELADO', 'ENTREGUE', 'CONCLUIDO'].indexOf(p.status) < 0 && window.AterrissePix) {
+      h += window.AterrissePix.bloco(l, p.total, p.numero, 'Pague agora pelo app do seu banco (QR Code ou copia e cola) ou, se preferir, na ' +
+        (p.modalidade === 'entrega' ? 'entrega, com o entregador' : 'hora de retirar/consumir') + '. O restaurante confere o recebimento.');
+    }
     if (p.itens && p.itens.length) {
       var texto = N.textoResumoPedido(p, l);
       h += '<a class="btn btn-zap btn-bloco" href="' + esc(N.linkWhatsApp(l.whatsapp, texto)) + '" target="_blank" rel="noopener">Enviar resumo pelo WhatsApp (opcional)</a>';
@@ -605,7 +610,10 @@
     if (ev.target.id !== 'form-pedido') return;
     ev.preventDefault();
     lerFormulario();
-    if (validarFormulario()) { estado.etapa = 'revisar'; estado.erroEnvio = ''; }
+    if (validarFormulario()) {
+      estado.etapa = 'revisar'; estado.erroEnvio = '';
+      if (!estado.form.chave_envio) { estado.form.chave_envio = 'e' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); gravarSessao('aterrisse_form', estado.form); }
+    }
     renderSacola();
     var primeiroErro = document.querySelector('.campo.invalido input, .campo.invalido select, .campo.invalido textarea');
     if (primeiroErro) primeiroErro.focus();

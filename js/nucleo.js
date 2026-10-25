@@ -326,6 +326,42 @@
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t);
   }
 
+  // ------------------------------------------------------------ Pix (QR Code estático, padrão BR Code do Banco Central)
+  // Gera o "Pix copia e cola" para a chave do restaurante, já com o valor do pedido.
+  // Não confirma pagamento: quem confere o recebimento é a equipe ou o entregador.
+
+  function semAcentoMaiusculo(t, max) {
+    return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ]/g, '').trim().toUpperCase().slice(0, max);
+  }
+  function campoPix(id, valor) { return id + ('0' + valor.length).slice(-2) + valor; }
+  function crc16(t) {
+    var crc = 0xFFFF;
+    for (var i = 0; i < t.length; i++) {
+      crc ^= t.charCodeAt(i) << 8;
+      for (var b = 0; b < 8; b++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+    return ('000' + crc.toString(16).toUpperCase()).slice(-4);
+  }
+  // Chave telefone vira +55DDDNÚMERO; e-mail/CPF/CNPJ/aleatória ficam como estão.
+  function chavePixNormalizada(chave) {
+    var c = String(chave || '').trim();
+    if (/^\+?[\d\s().-]{10,}$/.test(c) && c.indexOf('@') < 0) {
+      var d = c.replace(/\D/g, '');
+      if (d.length === 10 || d.length === 11) return '+55' + d;
+      if ((d.length === 12 || d.length === 13) && d.slice(0, 2) === '55') return '+' + d;
+    }
+    return c;
+  }
+  function pixCopiaECola(o) {
+    var conta = campoPix('00', 'br.gov.bcb.pix') + campoPix('01', chavePixNormalizada(o.chave));
+    var txid = semAcentoMaiusculo(o.txid || '***', 25).replace(/ /g, '') || '***';
+    var t = campoPix('00', '01') + campoPix('26', conta) + campoPix('52', '0000') + campoPix('53', '986') +
+      (o.valor > 0 ? campoPix('54', Number(o.valor).toFixed(2)) : '') + campoPix('58', 'BR') +
+      campoPix('59', semAcentoMaiusculo(o.nome, 25) || 'RECEBEDOR') + campoPix('60', semAcentoMaiusculo(o.cidade, 15) || 'BRASIL') +
+      campoPix('62', campoPix('05', txid)) + '6304';
+    return t + crc16(t);
+  }
+
   // ------------------------------------------------------------ contas da equipe (usuário + senha, sem e-mail)
   // Mesmo domínio interno da função aterrisse-contas (supabase/functions/aterrisse-contas/regras.js).
   var DOMINIO_CONTAS = 'aterrisse.invalid';
@@ -361,6 +397,7 @@
     transicaoValida: transicaoValida, proximosStatus: proximosStatus,
     resumoPedidos: resumoPedidos, relatorioPedidos: relatorioPedidos, enderecoLocal: enderecoLocal, escaparHtml: escaparHtml,
     prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa,
+    pixCopiaECola: pixCopiaECola, chavePixNormalizada: chavePixNormalizada, crc16: crc16,
     DOMINIO_CONTAS: DOMINIO_CONTAS, normalizarUsuario: normalizarUsuario, emailEntrada: emailEntrada, usuarioVisivel: usuarioVisivel
   };
 });

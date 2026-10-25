@@ -7,7 +7,7 @@
   var api = window.AterrisseBackend.criar(window.ATERRISSE_CONFIG);
   var esc = N.escaparHtml;
   function $(s) { return document.querySelector(s); }
-  var st = { entregas: [], timer: null, erro: null };
+  var st = { entregas: [], timer: null, erro: null, loja: null, pixAberto: {} };
 
   function toast(msg) {
     var t = document.createElement('div');
@@ -53,6 +53,7 @@
       return;
     }
     window.AterrissePrazo.aoAtrasar(function (id, numero) { bip(); toast('⚠ Entrega #' + numero + ' passou do prazo!'); });
+    try { st.loja = (await api.cardapio()).loja; } catch (e) { /* sem a loja: o QR do Pix não aparece */ }
     await carregar();
     if (st.timer) clearInterval(st.timer);
     st.timer = setInterval(carregar, 15000);
@@ -88,11 +89,27 @@
         return '<li>' + i.quantidade + '× ' + esc(i.nome) + (d ? ' <small>(' + esc(d) + ')</small>' : '') + '</li>';
       }).join('') + '</ul>' + (p.observacoes ? '<div style="color:var(--aviso)">Obs.: ' + esc(p.observacoes) + '</div>' : '') + '</div>' +
       '<div class="resumo-bloco" style="font-size:17px">Receber: <b>' + N.reais(p.total) + '</b> · ' + esc(nomePagamento(p.pagamento)) +
-      (troco > 0 ? '<br>Levar troco: <b>' + N.reais(troco) + '</b> (para ' + N.reais(p.troco_para) + ')' : '') + '</div>';
+      (troco > 0 ? '<br>Levar troco: <b>' + N.reais(troco) + '</b> (para ' + N.reais(p.troco_para) + ')' : '') + htmlPagamento(p) + '</div>';
     if (pronta) h += '<button class="btn btn-ouro btn-bloco" style="min-height:58px;font-size:18px" type="button" data-acao="status" data-id="' + esc(p.id) + '" data-para="SAIU_PARA_ENTREGA" data-numero="' + esc(p.numero) + '">🛵 Saí para entrega</button>';
     else if (saiu) h += '<button class="btn btn-ouro btn-bloco" style="min-height:58px;font-size:18px" type="button" data-acao="status" data-id="' + esc(p.id) + '" data-para="ENTREGUE" data-numero="' + esc(p.numero) + '">📦 Entregue</button>';
     else h += '<div class="aviso-caixa" style="margin-bottom:0">Ainda em preparo na cozinha. Aguarde ficar “Pronto”.</div>';
     return h + '</article>';
+  }
+
+  // Pagamento recebido pessoalmente: o entregador confirma e o painel do restaurante vê na hora.
+  function htmlPagamento(p) {
+    if (p.pagamento_status === 'CONFIRMADO') return '<div class="ok-caixa" style="margin:8px 0 0">✔ Pagamento recebido' + (p.pago_como ? ' (' + esc(nomePagamento(p.pago_como)) + ')' : '') + '</div>';
+    if (p.pagamento_status === 'CANCELADO') return '';
+    var h = '';
+    if (st.loja && st.loja.pix_chave) {
+      h += '<button class="btn btn-linha btn-bloco" style="margin-top:8px" type="button" data-acao="pix" data-id="' + esc(p.id) + '">' + (st.pixAberto[p.id] ? 'Esconder QR do Pix' : '📱 Mostrar QR do Pix ao cliente') + '</button>';
+      if (st.pixAberto[p.id]) h += window.AterrissePix.bloco(st.loja, Number(p.total), p.numero, 'O cliente lê com o app do banco. Confira o Pix recebido antes de confirmar.');
+    }
+    if (p.status !== 'SAIU_PARA_ENTREGA') return h + '<div style="font-size:13px;color:var(--texto-2);margin-top:6px">Confirme o pagamento depois de sair para a entrega.</div>';
+    return h + '<div style="margin-top:10px;font-size:14px;font-weight:800">Recebi o pagamento em:</div><div class="barra-acoes" style="margin:6px 0 0">' +
+      [['dinheiro', '💵 Dinheiro'], ['cartao', '💳 Cartão'], ['pix', '📱 Pix']].map(function (f) {
+        return '<button class="btn btn-linha" style="flex:1;min-width:90px" type="button" data-acao="pago" data-id="' + esc(p.id) + '" data-forma="' + f[0] + '" data-numero="' + esc(p.numero) + '">' + f[1] + '</button>';
+      }).join('') + '</div>';
   }
 
   function nomePagamento(id) {
@@ -110,8 +127,19 @@
     var el = ev.target.closest('[data-acao]');
     if (!el) return;
     if (el.dataset.acao === 'sair') { await api.sair(); telaLogin(); return; }
+    if (el.dataset.acao === 'pix') { st.pixAberto[el.dataset.id] = !st.pixAberto[el.dataset.id]; render(); return; }
+    if (el.dataset.acao === 'pago') {
+      if (!confirm('Confirmar que recebeu o pagamento da entrega #' + el.dataset.numero + ' em ' + nomePagamento(el.dataset.forma) + '?')) return;
+      el.disabled = true;
+      try { await api.confirmarPagamento(el.dataset.id, el.dataset.forma); toast('Pagamento registrado ✔'); st.pixAberto[el.dataset.id] = false; }
+      catch (e) { alert(e.message); }
+      carregar();
+      return;
+    }
     if (el.dataset.acao === 'status') {
+      var pedido = st.entregas.filter(function (x) { return x.id === el.dataset.id; })[0];
       var txt = el.dataset.para === 'ENTREGUE' ? 'Confirmar que a entrega #' + el.dataset.numero + ' foi feita?' : 'Confirmar que saiu com a entrega #' + el.dataset.numero + '?';
+      if (el.dataset.para === 'ENTREGUE' && pedido && pedido.pagamento_status === 'PENDENTE') txt = 'O pagamento da entrega #' + el.dataset.numero + ' ainda NÃO foi marcado como recebido. Marcar como entregue mesmo assim?';
       if (!confirm(txt)) return;
       el.disabled = true;
       try { await api.mudarStatus(el.dataset.id, el.dataset.para); toast(el.dataset.para === 'ENTREGUE' ? 'Entrega concluída ✔' : 'Boa entrega! 🛵'); }
