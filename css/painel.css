@@ -1,0 +1,78 @@
+/* Painel interno do Mini Delivery Aterrisse */
+.painel-nav { position: sticky; top: 64px; z-index: 15; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 8px 16px; background: #171411; border-bottom: 1px solid #2f2820; }
+.painel-nav::-webkit-scrollbar { display: none; }
+.painel-nav button { flex: none; min-height: 42px; padding: 8px 14px; border-radius: 999px; border: 1px solid #4c4031; background: #1a1612; font-weight: 700; font-size: 14px; white-space: nowrap; }
+.painel-nav button[aria-current="page"] { background: var(--ouro); color: #17110a; border-color: var(--ouro); }
+.painel-nav .badge-novo { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 4px; padding: 0 5px; border-radius: 10px; background: var(--erro); color: #fff; font-size: 12px; }
+.painel-conteudo { padding-top: 18px; padding-bottom: 60px; }
+/* Celular: abas do painel em grade, todas visíveis (sem rolar para o lado). */
+@media (max-width: 767px) {
+  .painel-nav { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+  .painel-nav button { min-height: 40px; padding: 6px 4px; font-size: 13px; white-space: normal; line-height: 1.15; border-radius: 12px; }
+  .pedido-linha .lado { min-width: 0; }
+  .tabela { font-size: 13px; }
+}
+.painel-conteudo h2 { margin: 0 0 12px; font-size: 22px; }
+.painel-conteudo h3 { margin: 18px 0 8px; font-size: 17px; color: var(--ouro-2); }
+.cartoes-resumo { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+.cartao-num { background: var(--cartao); border: 1px solid var(--linha); border-radius: var(--raio); padding: 14px; }
+.cartao-num span { display: block; font-size: 13px; color: var(--texto-2); }
+.cartao-num strong { font-size: 24px; color: var(--ouro); }
+.caixa { background: var(--cartao); border: 1px solid var(--linha); border-radius: var(--raio); padding: 14px; margin-bottom: 14px; }
+.barra-acoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.barra-acoes .entrada { width: auto; flex: 1; min-width: 150px; }
+.lista-pedidos { display: grid; gap: 10px; }
+.pedido-linha { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; text-align: left; width: 100%; background: var(--cartao); border: 1px solid var(--linha); border-radius: var(--raio); padding: 12px; }
+.pedido-linha:hover { border-color: var(--ouro); }
+.pedido-linha .num { font-size: 22px; font-weight: 900; color: var(--ouro); }
+.pedido-linha .info { min-width: 0; }
+.pedido-linha .info b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pedido-linha .info small { color: var(--texto-2); }
+.pedido-linha .lado { text-align: right; }
+.status { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.st-RECEBIDO { background: #5a1e16; color: #ffd0c9; }
+.st-ACEITO { background: #4a3508; color: #ffe08a; }
+.st-EM_PREPARACAO { background: #4a2a08; color: #ffc27a; }
+.st-PRONTO { background: #173a22; color: #a7e3b6; }
+.st-SAIU_PARA_ENTREGA { background: #13314a; color: #a8d4ff; }
+.st-ENTREGUE, .st-CONCLUIDO { background: #22301f; color: #c9e6c0; }
+.st-CANCELADO { background: #333; color: #bbb; text-decoration: line-through; }
+.colunas { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.ticket { background: #fffaf0; color: #1b1206; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.ticket h4 { margin: 0 0 6px; font-size: 20px; }
+.ticket ul { margin: 6px 0; padding-left: 18px; font-size: 17px; }
+.ticket .obs { background: #ffe9b3; border-radius: 6px; padding: 4px 8px; font-weight: 700; margin: 4px 0; }
+.ticket .btn { margin-top: 8px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tabela th, .tabela td { padding: 8px 6px; border-bottom: 1px solid var(--linha); text-align: left; vertical-align: top; }
+.tabela th { color: var(--texto-2); font-weight: 700; }
+.rolagem-x { overflow-x: auto; }
+.prod-adm { display: grid; grid-template-columns: 42px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--linha); }
+.prod-adm .ic { font-size: 28px; text-align: center; }
+.prod-adm .acoes-prod { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.grupo-editor { border: 1px dashed #6a5638; border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+.opcao-editor { display: grid; grid-template-columns: 1fr 90px auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.opcao-editor input[type=text], .opcao-editor input[type=number] { min-height: 40px; padding: 6px 8px; border-radius: 8px; border: 1px solid #5a4a37; background: #120f0c; width: 100%; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-height: 40px; }
+.chk input { width: 20px; height: 20px; accent-color: var(--ouro); }
+.qr-area { background: #fff; color: #111; border-radius: 16px; padding: 18px; text-align: center; max-width: 360px; margin: 0 auto; }
+.qr-area svg { width: 100%; height: auto; max-width: 260px; }
+.qr-area h3 { color: #111; margin: 0 0 4px; }
+.aviso-caixa { background: #3b2a06; color: var(--aviso); border: 1px solid #7a5a12; border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
+.erro-caixa { background: #3a1814; color: #ffd0c9; border: 1px solid #8e3b33; border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
+.ok-caixa { background: #173a22; color: #c9f0d4; border: 1px solid #2f6a40; border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
+.login { max-width: 420px; margin: 30px auto; }
+.so-imprimir { display: none; }
+@media (min-width: 720px) {
+  .cartoes-resumo { grid-template-columns: repeat(4, 1fr); }
+  .colunas { grid-template-columns: 1fr 1fr; }
+}
+@media print {
+  body { background: #fff; color: #000; }
+  body > *:not(#area-impressao) { display: none !important; }
+  #area-impressao { display: block !important; }
+  .cartaz-qr { text-align: center; font-family: Arial, sans-serif; padding: 30px; }
+  .cartaz-qr h1 { font-size: 34px; margin: 0 0 6px; }
+  .cartaz-qr p { font-size: 20px; margin: 8px 0; }
+  .cartaz-qr svg { width: 9cm; height: 9cm; }
+}

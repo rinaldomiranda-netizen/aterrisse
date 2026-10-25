@@ -1,0 +1,16 @@
+{
+  "name": "Painel Aterrisse",
+  "short_name": "Painel Aterrisse",
+  "description": "Painel da equipe do Restaurante Aterrisse",
+  "lang": "pt-BR",
+  "id": "./painel.html",
+  "start_url": "./painel.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141210",
+  "theme_color": "#141210",
+  "icons": [
+    { "src": "assets/marca/icone_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/marca/aterrisse_icone.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
