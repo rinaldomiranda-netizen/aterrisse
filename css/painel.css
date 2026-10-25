@@ -76,3 +76,4 @@
   .cartaz-qr p { font-size: 20px; margin: 8px 0; }
   .cartaz-qr svg { width: 9cm; height: 9cm; }
 }
+.st-TESTE { background: #3b2a06; color: var(--aviso); border: 1px dashed #8a6d20; }

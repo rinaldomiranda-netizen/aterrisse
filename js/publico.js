@@ -70,6 +70,8 @@
     if (api.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — os pedidos ficam só neste aparelho e NÃO chegam ao restaurante.</div>';
     if (horaSimulada) h += '<div class="faixa faixa-aviso">🕒 Hora simulada: ' + esc(horaSimulada) + ' (Maceió). Tire “?simular_hora” do endereço para voltar ao normal.</div>';
     var l = estado.cardapio && estado.cardapio.loja;
+    if (api.modo !== 'demo' && l && l.modo === 'demo' && l.liberada !== false) h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração — os pedidos chegam ao painel marcados como TESTE. Preços com “Exemplo” são fictícios.</div>';
+    if (l && l.liberada === false) h += '<div class="faixa faixa-fechado" role="alert">Cardápio temporariamente indisponível.</div>';
     if (l && !l.aberto) h += '<div class="faixa faixa-fechado" role="alert">O restaurante não está recebendo pedidos agora. Você pode ver o cardápio.</div>';
     if (l && l.aviso) h += '<div class="faixa faixa-aviso">' + esc(l.aviso) + '</div>';
     $('#faixas').innerHTML = h;
@@ -149,6 +151,10 @@
         esc((c.icone ? c.icone + ' ' : '') + c.nome) + (agoraCat ? '<span class="sr"> (destaque agora)</span>' : '') + '</a>';
     }).join('');
 
+    if (estado.cardapio.loja.liberada === false) {
+      alvo.innerHTML = '<div class="vazio" style="margin-top:20px"><b>Cardápio temporariamente indisponível.</b><br>Fale com o restaurante pelo WhatsApp.</div>';
+      return;
+    }
     if (!estado.cardapio.produtos.length) {
       alvo.innerHTML = '<div class="vazio" style="margin-top:20px">O cardápio está vazio no momento. Fale com o restaurante pelo WhatsApp.</div>';
       return;
@@ -457,6 +463,7 @@
     if (f.observacoes) h += '<div>Obs.: ' + esc(f.observacoes) + '</div>';
     h += '</div>' + htmlTotais(f.modalidade);
     if (api.modo === 'demo') h += '<div class="erros-lista" style="background:#3b2a06;color:var(--aviso)">Modo demonstração: o pedido fica só neste aparelho e não chega ao restaurante.</div>';
+    else if (estado.cardapio.loja.modo === 'demo') h += '<div class="erros-lista" style="background:#3b2a06;color:var(--aviso)">Versão de demonstração: o pedido chega ao painel do restaurante marcado como TESTE.</div>';
     h += '<p style="font-size:12px;color:var(--texto-2)">O valor final é conferido pelo restaurante no momento do envio.</p>';
     h += '<div class="erros-lista" id="erro-envio" role="alert">' + esc(estado.erroEnvio || '') + '</div>';
     h += '<div class="rodape-janela"><button class="btn btn-ouro" type="button" data-acao="enviar"' + (estado.enviando ? ' disabled' : '') + ' autofocus>' + (estado.enviando ? 'Enviando…' : 'Enviar pedido') + '</button></div>';
@@ -477,7 +484,7 @@
     };
     try {
       var r = await api.criarPedido(dados);
-      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo' };
+      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste };
       estado.ultimo = { numero: r.numero, acompanhamento: r.acompanhamento, criado_em: r.criado_em, demo: api.modo === 'demo' };
       gravarLocal('aterrisse_ultimo_pedido', estado.ultimo);
       estado.sacola = []; salvarSacola();
@@ -499,6 +506,7 @@
     var h = cabecalho(p.demo ? 'Pedido de demonstração' : 'Pedido enviado!');
     h += '<div class="sucesso"><div>Número do pedido</div><div class="numero">#' + esc(p.numero) + '</div>';
     h += p.demo ? '<p style="color:var(--aviso)"><b>Modo demonstração:</b> este pedido ficou só neste aparelho. Ele NÃO foi enviado ao restaurante.</p>'
+      : p.teste ? '<p>O pedido chegou ao painel do restaurante como <b>pedido de TESTE</b> (versão de demonstração). Guarde o número.</p>'
       : '<p>O restaurante recebeu o seu pedido. Guarde o número.</p>';
     var ordem = p.modalidade === 'entrega' ? ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA', 'ENTREGUE'] : ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'CONCLUIDO'];
     if (p.status === 'CANCELADO') h += '<p class="erros-lista">Este pedido foi cancelado. Fale com o restaurante pelo WhatsApp.</p>';

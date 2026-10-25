@@ -29,8 +29,22 @@
   }
 
   function renderFaixas() {
-    $('#faixas').innerHTML = api.modo === 'demo'
-      ? '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — dados só neste navegador. Nada aqui é o servidor do restaurante.</div>' : '';
+    var l = st.lojaPub, h = '';
+    if (api.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">⚠️ MODO DEMONSTRAÇÃO — dados só neste navegador. Nada aqui é o servidor do restaurante.</div>';
+    else if (l && l.modo === 'demo') h += '<div class="faixa faixa-demo" role="note">🧪 Versão de demonstração: os pedidos chegam marcados como TESTE.</div>';
+    if (l && l.liberada === false) h += '<div class="faixa faixa-fechado" role="alert">Loja suspensa: o cardápio está indisponível para os clientes. Fale com a RMD.</div>';
+    $('#faixas').innerHTML = h;
+  }
+
+  // Abas que o desenvolvedor RMD deixou liberadas (recursos desligados somem do painel; o servidor também recusa).
+  var RECURSO_DA_ABA = { cozinha: 'cozinha', entregas: 'entregadores', minhas: 'entregadores', qrcode: 'qrcode', relatorios: 'relatorios' };
+  function abasLiberadas() {
+    var rec = (st.lojaPub && st.lojaPub.recursos) || {};
+    return ABAS[st.papel].filter(function (a) { return !RECURSO_DA_ABA[a] || rec[RECURSO_DA_ABA[a]] !== false; });
+  }
+  function pedidosQueContam() {
+    // no modo real, pedidos de teste (feitos na demonstração) não entram nos números
+    return st.lojaPub && st.lojaPub.modo === 'real' ? st.pedidos.filter(function (p) { return !p.teste; }) : st.pedidos;
   }
 
   // ================================================================ login
@@ -69,13 +83,19 @@
     try { st.papel = await api.papel(); } catch (e) { return telaLogin(e.codigo === 'REDE' ? e.message : null); }
     if (!st.papel) {
       $('#btn-sair').classList.remove('oculto');
-      $('#conteudo').innerHTML = '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe do Aterrisse. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
+      var rmd = false;
+      try { rmd = await api.souRmd(); } catch (e) { /* segue */ }
+      $('#conteudo').innerHTML = rmd
+        ? '<div class="login caixa"><h2>Conta do desenvolvedor RMD</h2><p>Esta conta não acessa o painel do restaurante (vendas e clientes são do restaurante). Use a <a href="rmd.html">área do desenvolvedor</a>.</p></div>'
+        : '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe do Aterrisse. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
       return;
     }
+    try { st.lojaPub = (await api.cardapio()).loja; } catch (e) { /* sem conexão: segue com o padrão */ }
+    renderFaixas();
     var s = api.sessao() || {};
     $('#quem').textContent = (s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
     $('#btn-sair').classList.remove('oculto');
-    var abas = ABAS[st.papel];
+    var abas = abasLiberadas();
     var pedida = (location.hash || '').slice(1);
     irPara(abas.indexOf(pedida) >= 0 ? pedida : abas[0]);
     if (st.timer) clearInterval(st.timer);
@@ -88,7 +108,7 @@
     var nav = $('#nav');
     nav.classList.remove('oculto');
     var novos = st.pedidos.filter(function (p) { return p.status === 'RECEBIDO'; }).length;
-    nav.innerHTML = ABAS[st.papel].map(function (a) {
+    nav.innerHTML = abasLiberadas().map(function (a) {
       return '<button type="button" data-acao="aba" data-aba="' + a + '"' + (st.aba === a ? ' aria-current="page"' : '') + '>' + NOMES_ABA[a] +
         (a === 'pedidos' && novos ? '<span class="badge-novo" aria-label="' + novos + ' novos">' + novos + '</span>' : '') + '</button>';
     }).join('');
@@ -164,7 +184,7 @@
 
   function telaInicio() {
     var hoje = N.diaNoFuso(new Date());
-    var r = N.resumoPedidos(st.pedidos, hoje);
+    var r = N.resumoPedidos(pedidosQueContam(), hoje);
     var andamento = st.pedidos.filter(function (p) { return ['ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA'].indexOf(p.status) >= 0; }).length;
     var h = '<h2>Hoje</h2><div class="cartoes-resumo">' +
       '<div class="cartao-num"><span>Pedidos novos</span><strong>' + r.novos + '</strong></div>' +
@@ -186,7 +206,7 @@
   function linhaPedido(p) {
     var onde = p.modalidade === 'entrega' ? (p.endereco ? p.endereco.bairro : '') : p.modalidade === 'local' ? (p.mesa ? 'Mesa ' + p.mesa : 'Na loja') : 'Balcão';
     return '<button class="pedido-linha" type="button" data-acao="abrir-pedido" data-id="' + esc(p.id) + '"><span class="num">#' + esc(p.numero) + '</span>' +
-      '<span class="info"><b>' + esc(p.nome) + '</b><small>' + esc(N.dataHora(p.criado_em)) + ' · ' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (onde ? ' · ' + esc(onde) : '') + '</small></span>' +
+      '<span class="info"><b>' + (p.teste ? '<span class="status st-TESTE">TESTE</span> ' : '') + esc(p.nome) + '</b><small>' + esc(N.dataHora(p.criado_em)) + ' · ' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (onde ? ' · ' + esc(onde) : '') + '</small></span>' +
       '<span class="lado"><span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span><br><b>' + N.reais(p.total) + '</b></span></button>';
   }
 
@@ -222,7 +242,7 @@
   var NOMES_BOTAO = { ACEITO: '✔ Aceitar', EM_PREPARACAO: '🍳 Em preparação', PRONTO: '✅ Pronto', SAIU_PARA_ENTREGA: '🛵 Saiu para entrega', ENTREGUE: '📦 Entregue', CONCLUIDO: '🏁 Concluído', CANCELADO: 'Cancelar pedido' };
 
   function htmlPedido(p) {
-    var h = '<div class="janela-cab"><h2 id="janela-titulo">Pedido #' + esc(p.numero) + ' <span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span></h2>' +
+    var h = '<div class="janela-cab"><h2 id="janela-titulo">Pedido #' + esc(p.numero) + ' <span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span>' + (p.teste ? ' <span class="status st-TESTE">TESTE</span>' : '') + '</h2>' +
       '<button class="fechar" type="button" data-acao="fechar" aria-label="Fechar">×</button></div>';
     h += '<div class="resumo-bloco"><h3>' + esc(N.MODALIDADE_NOMES[p.modalidade]) + ' · ' + esc(N.dataHora(p.criado_em)) + '</h3><div><b>' + esc(p.nome) + '</b></div>';
     if (p.telefone) {

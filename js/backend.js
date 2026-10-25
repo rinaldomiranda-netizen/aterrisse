@@ -95,6 +95,9 @@
     var j = await resp.json().catch(function () { return null; });
     if (!resp.ok) {
       j = j || {};
+      if (resp.status >= 500 && caminho.indexOf('aterrisse_registrar_erro') < 0) {
+        this.registrarErro('servidor', 'Erro ' + resp.status + ' em ' + caminho.split('?')[0], j.message || '').catch(function () {});
+      }
       var codigo = j.message || 'ERRO';
       var msg = j.hint || (/permission denied|row-level/i.test(j.message || '') ? 'Sem permissão para isso.' : j.message) || 'Erro no servidor.';
       if (codigo === 'SEM_PERMISSAO' && !j.hint) msg = 'Sem permissão para isso.';
@@ -245,6 +248,20 @@
     if (e.id) return this._req('PATCH', 'aterrisse_entregadores?id=eq.' + e.id, linha, 'return=minimal');
     return this._req('POST', 'aterrisse_entregadores', linha, 'return=minimal');
   };
+
+  // ---- erros técnicos (qualquer tela) e área do desenvolvedor RMD (sem vendas nem clientes)
+  BackendSupabase.prototype.registrarErro = function (pagina, mensagem, detalhe) {
+    return this._rpc('aterrisse_registrar_erro', { p_pagina: pagina, p_mensagem: mensagem, p_detalhe: detalhe || null });
+  };
+  BackendSupabase.prototype.souRmd = function () { return this._rpc('aterrisse_e_rmd'); };
+  BackendSupabase.prototype.rmdPainel = function () { return this._rpc('aterrisse_rmd_painel'); };
+  BackendSupabase.prototype.rmdControle = function (c) {
+    return this._rpc('aterrisse_rmd_controle', { p_liberada: c.liberada, p_motivo: c.motivo_suspensao || null, p_modo: c.modo, p_recursos: c.recursos });
+  };
+  BackendSupabase.prototype.rmdDarAcesso = function (email, nome, papel) { return this._rpc('aterrisse_rmd_dar_acesso', { p_email: email, p_nome: nome, p_papel: papel }); };
+  BackendSupabase.prototype.rmdTirarAcesso = function (userId) { return this._rpc('aterrisse_rmd_tirar_acesso', { p_user: userId }); };
+  BackendSupabase.prototype.rmdErros = function (todos) { return this._rpc('aterrisse_rmd_erros', { p_todos: !!todos }); };
+  BackendSupabase.prototype.rmdErroResolvido = function (id, resolvido) { return this._rpc('aterrisse_rmd_erro_resolvido', { p_id: id, p_resolvido: resolvido }); };
 
   // ================================================================ Demonstração (só no navegador)
 
@@ -480,6 +497,11 @@
     this._gravar(e);
   };
   BackendDemo.prototype.apagarTudoDemo = function () { if (this.armazem) guardar(this.armazem, CHAVE_DEMO, null); };
+  BackendDemo.prototype.registrarErro = async function () { /* no modo navegador não há servidor para guardar erros */ };
+  BackendDemo.prototype.souRmd = async function () { return false; };
+  ['rmdPainel', 'rmdControle', 'rmdDarAcesso', 'rmdTirarAcesso', 'rmdErros', 'rmdErroResolvido'].forEach(function (n) {
+    BackendDemo.prototype[n] = async function () { throw Erro('A área do desenvolvedor só funciona com o banco (MODO supabase).', 'DEMO'); };
+  });
 
   function criar(cfg) {
     cfg = cfg || {};

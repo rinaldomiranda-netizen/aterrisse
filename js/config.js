@@ -8,7 +8,7 @@
      'supabase' -> pedidos gravados no Supabase beta-cloud. Só ligue DEPOIS de aplicar
                    supabase/001_aterrisse_delivery.sql e 002_aterrisse_dados_iniciais.sql. */
 window.ATERRISSE_CONFIG = {
-  MODO: 'demo',
+  MODO: 'supabase',
   SUPABASE_URL: 'https://cxzzutbijljjteapowuv.supabase.co',
   SUPABASE_CHAVE_PUBLICA: 'sb_publishable_aMDO3LAivnM7dSonKxzOKg_3eLGaNwy'
 };
