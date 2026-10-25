@@ -119,7 +119,7 @@
   function render() {
     var h = st.erro ? '<div class="erro-caixa" role="alert">Falha de comunicação: ' + esc(st.erro) + '</div>' : '';
     if (!st.entregas.length) h += '<div class="vazio">Nenhuma entrega com você agora.<br><small>A lista atualiza sozinha.</small></div>';
-    else h += st.entregas.map(cartao).join('');
+    else h += '<div class="lista-entregas">' + st.entregas.map(cartao).join('') + '</div>';
     $('#conteudo').innerHTML = h;
   }
 

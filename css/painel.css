@@ -67,6 +67,13 @@
   .cartoes-resumo { grid-template-columns: repeat(4, 1fr); }
   .colunas { grid-template-columns: 1fr 1fr; }
 }
+/* computador: tela toda — pedidos em 2 colunas e, na cozinha, vários tickets lado a lado em cada coluna */
+@media (min-width: 1200px) {
+  .lista-pedidos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+  .colunas > section { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-content: start; }
+  .colunas > section > h3, .colunas > section > .vazio { grid-column: 1 / -1; }
+  .colunas > section > .ticket { margin-bottom: 0; }
+}
 @media print {
   body { background: #fff; color: #000; }
   body > *:not(#area-impressao) { display: none !important; }
