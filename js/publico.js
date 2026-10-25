@@ -13,10 +13,24 @@
   var estado = {
     cardapio: null, erroCarga: null, destaque: null, busca: '',
     sacola: lerLocal('aterrisse_sacola') || [],
-    etapa: 'sacola', form: lerSessao('aterrisse_form') || {}, enviando: false, ultimoEnvio: null,
+    etapa: 'sacola', form: lerSessao('aterrisse_form') || clienteLembrado(), enviando: false, ultimoEnvio: null,
     ultimo: lerLocal('aterrisse_ultimo_pedido'), timerStatus: null
   };
   if (mesaDoQr) { estado.form.modalidade = 'local'; estado.form.mesa = mesaDoQr; }
+
+  // Dados do cliente guardados SÓ neste aparelho (nome, telefone, endereço) para não digitar tudo de novo.
+  // Não ficam num cadastro buscável pelo telefone: assim ninguém descobre o endereço de outra pessoa.
+  function clienteLembrado() {
+    var c = lerLocal('aterrisse_cliente');
+    if (!c) return {};
+    return { nome: c.nome || '', telefone: c.telefone || '', endereco: c.endereco || null, modalidade: c.modalidade || undefined, pagamento: c.pagamento || undefined, lembrar: true, lembrado: true };
+  }
+  function guardarCliente(f) {
+    if (f.lembrar === false) { gravarLocal('aterrisse_cliente', null); return; }
+    var anterior = lerLocal('aterrisse_cliente') || {};
+    gravarLocal('aterrisse_cliente', { nome: f.nome, telefone: f.telefone, modalidade: f.modalidade, pagamento: f.pagamento,
+      endereco: f.modalidade === 'entrega' && f.endereco ? f.endereco : (anterior.endereco || null) });
+  }
 
   function lerLocal(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
   function gravarLocal(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sem armazenamento */ } }
@@ -421,6 +435,8 @@
       pags.map(function (p) { return '<option value="' + esc(p.id) + '"' + (f.pagamento === p.id ? ' selected' : '') + '>' + esc(p.nome) + '</option>'; }).join('') +
       '</select><span class="ajuda">O pagamento é feito direto com o restaurante (nada é cobrado por este site).</span>' + (e.pagamento ? '<span class="msg-erro">' + esc(e.pagamento) + '</span>' : '') + '</div>';
     if (f.pagamento === 'dinheiro') h += campo('troco', 'Troco para quanto? (opcional)', f.troco, 'inputmode="decimal" maxlength="10" placeholder="Ex.: 50"', e.troco);
+    h += '<label class="chk" style="margin-bottom:6px"><input type="checkbox" name="lembrar"' + (f.lembrar === false ? '' : ' checked') + '> Lembrar meus dados neste aparelho</label>' +
+      (f.lembrado ? '<div style="font-size:13px;color:var(--texto-2);margin-bottom:12px">Usamos os dados do seu último pedido neste aparelho. <button class="btn btn-linha btn-peq" type="button" data-acao="esquecer-dados">Esquecer meus dados</button></div>' : '');
     h += '<div class="campo' + (e.observacoes ? ' invalido' : '') + '"><label for="f-observacoes">Observações gerais (opcional)</label><textarea id="f-observacoes" name="observacoes" maxlength="500">' + esc(f.observacoes || '') + '</textarea>' +
       (e.observacoes ? '<span class="msg-erro">' + esc(e.observacoes) + '</span>' : '') + '</div>';
     h += htmlTotais(f.modalidade);
@@ -435,6 +451,7 @@
     var val = function (n) { var el = form.elements[n]; return el ? el.value : undefined; };
     ['nome', 'telefone', 'mesa', 'pagamento', 'troco', 'observacoes'].forEach(function (k) { var v = val(k); if (v !== undefined) f[k] = v; });
     var m = form.querySelector('input[name="modalidade"]:checked'); if (m) f.modalidade = m.value;
+    if (form.elements.lembrar) f.lembrar = form.elements.lembrar.checked;
     if (form.elements.rua) f.endereco = { rua: val('rua'), numero: val('numero'), bairro: val('bairro'), complemento: val('complemento'), referencia: val('referencia') };
     gravarSessao('aterrisse_form', f);
   }
@@ -490,7 +507,8 @@
       estado.ultimo = { numero: r.numero, acompanhamento: r.acompanhamento, criado_em: r.criado_em, demo: api.modo === 'demo' };
       gravarLocal('aterrisse_ultimo_pedido', estado.ultimo);
       estado.sacola = []; salvarSacola();
-      estado.form.observacoes = ''; estado.form.chave_envio = null; gravarSessao('aterrisse_form', estado.form);
+      guardarCliente(estado.form);
+      estado.form.observacoes = ''; estado.form.chave_envio = null; estado.form.lembrado = estado.form.lembrar !== false; gravarSessao('aterrisse_form', estado.form);
       estado.etapa = 'enviado';
       iniciarAcompanhamento();
     } catch (e) {
@@ -579,6 +597,11 @@
     else if (acao === 'editar-item') { var i2 = estado.sacola.filter(function (i) { return i.chave === alvo.dataset.chave; })[0]; if (i2) abrirProduto(i2.produto_id, i2.chave); }
     else if (acao === 'etapa') { lerFormulario(); estado.etapa = alvo.dataset.etapa; estado.errosForm = null; renderSacola(); }
     else if (acao === 'enviar') enviar();
+    else if (acao === 'esquecer-dados') {
+      gravarLocal('aterrisse_cliente', null);
+      estado.form = { modalidade: estado.form.modalidade, lembrar: false }; gravarSessao('aterrisse_form', estado.form);
+      toast('Seus dados foram apagados deste aparelho.'); renderSacola();
+    }
     else if (acao === 'ver-ultimo') {
       estado.etapa = 'enviado';
       if (!estado.ultimoEnvio || estado.ultimoEnvio.numero !== (estado.ultimo && estado.ultimo.numero)) estado.ultimoEnvio = { numero: estado.ultimo.numero, acompanhamento: estado.ultimo.acompanhamento, status: 'RECEBIDO', total: 0, demo: estado.ultimo.demo };
