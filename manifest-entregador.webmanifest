@@ -1,0 +1,16 @@
+{
+  "name": "Entregador Aterrisse",
+  "short_name": "Entregas",
+  "description": "Entregas do Restaurante Aterrisse",
+  "lang": "pt-BR",
+  "id": "./entregador.html",
+  "start_url": "./entregador.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141210",
+  "theme_color": "#141210",
+  "icons": [
+    { "src": "assets/marca/icone_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/marca/aterrisse_icone.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

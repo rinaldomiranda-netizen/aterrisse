@@ -206,3 +206,10 @@ img { max-width: 100%; display: block; }
   .rodape { padding-bottom: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* ---------- prazo do pedido (contagem regressiva) */
+.prazo { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 900; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prazo.ok { background: #173a22; color: #a7e3b6; }
+.prazo.alerta { background: #4a3508; color: #ffe08a; }
+.prazo.atrasado { background: #7a1e14; color: #fff; animation: piscar 1.2s infinite; }
+@keyframes piscar { 50% { opacity: .6; } }

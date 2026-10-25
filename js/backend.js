@@ -28,7 +28,8 @@
     'ativo', 'destaque', 'demonstracao', 'ingredientes_removiveis', 'permite_observacao', 'ordem'];
   var CAMPOS_CATEGORIA = ['slug', 'nome', 'descricao', 'icone', 'ordem', 'ativa'];
   var CAMPOS_LOJA = ['nome', 'logo_url', 'whatsapp', 'aberto', 'aviso', 'horario_funcionamento', 'aceita_entrega', 'aceita_retirada',
-    'aceita_local', 'taxa_entrega', 'pedido_minimo', 'mesa_modo', 'previsao_retirada_min', 'previsao_entrega_min', 'pagamentos', 'url_publica'];
+    'aceita_local', 'taxa_entrega', 'pedido_minimo', 'mesa_modo', 'previsao_retirada_min', 'previsao_entrega_min', 'previsao_local_min',
+    'pagamentos', 'url_publica'];
   var ABERTOS = 'RECEBIDO,ACEITO,EM_PREPARACAO,PRONTO,SAIU_PARA_ENTREGA';
 
   function escolher(obj, campos) {
@@ -342,6 +343,8 @@
     }
     var tel = N.soDigitos(dados.telefone) || null;
     var agora = new Date().toISOString();
+    var minutos = { entrega: e.loja.previsao_entrega_min, retirada: e.loja.previsao_retirada_min, local: e.loja.previsao_local_min }[dados.modalidade];
+    var prazo = minutos > 0 ? new Date(Date.now() + minutos * 60000).toISOString() : null;
     var pedido = {
       id: novoId(), numero: e.proximoNumero++, acompanhamento: novoId(), nome: String(dados.nome).trim(), telefone: tel,
       modalidade: dados.modalidade,
@@ -352,17 +355,20 @@
       mesa: dados.modalidade === 'local' && e.loja.mesa_modo !== 'desligado' ? (String(dados.mesa || '').trim() || null) : null,
       observacoes: String(dados.observacoes || '').trim() || null, pagamento: dados.pagamento, troco_para: troco,
       subtotal: sub, taxa_entrega: taxa, total: total, status: 'RECEBIDO', entregador_id: null, pagamento_status: 'PENDENTE',
-      criado_em: agora, atualizado_em: agora, itens: linhas, historico: [{ de: null, para: 'RECEBIDO', em: agora }]
+      criado_em: agora, atualizado_em: agora, itens: linhas, historico: [{ de: null, para: 'RECEBIDO', em: agora }],
+      prazo_em: prazo, finalizado_em: null, no_prazo: null
     };
     e.pedidos.push(pedido);
     this._gravar(e);
-    return { numero: pedido.numero, acompanhamento: pedido.acompanhamento, status: pedido.status, subtotal: sub, taxa_entrega: taxa, total: total, criado_em: agora, itens: linhas };
+    return { numero: pedido.numero, acompanhamento: pedido.acompanhamento, status: pedido.status, subtotal: sub, taxa_entrega: taxa, total: total, criado_em: agora, itens: linhas, prazo_em: prazo };
   };
 
   BackendDemo.prototype.acompanhar = async function (numero, codigo) {
     var p = this._estado().pedidos.filter(function (x) { return x.numero === Number(numero) && x.acompanhamento === codigo; })[0];
     if (!p) return null;
-    return { numero: p.numero, status: p.status, modalidade: p.modalidade, total: p.total, criado_em: p.criado_em,
+    var ent = (this._estado().entregadores || []).filter(function (x) { return x.id === p.entregador_id; })[0];
+    return { numero: p.numero, status: p.status, modalidade: p.modalidade, total: p.total, criado_em: p.criado_em, prazo_em: p.prazo_em || null,
+      entregador: ent && ['SAIU_PARA_ENTREGA', 'ENTREGUE'].indexOf(p.status) >= 0 ? ent.nome.split(' ')[0] : null,
       historico: p.historico.map(function (h) { return { status: h.para, em: h.em }; }) };
   };
 
@@ -404,6 +410,8 @@
     var agora = new Date().toISOString();
     p.historico.push({ de: p.status, para: para, motivo: motivo || null, em: agora });
     p.status = para; p.atualizado_em = agora;
+    if (['ENTREGUE', 'CONCLUIDO', 'CANCELADO'].indexOf(para) >= 0) p.finalizado_em = agora;
+    p.no_prazo = para === 'CANCELADO' ? null : (['ENTREGUE', 'CONCLUIDO'].indexOf(para) >= 0 && p.prazo_em ? Date.now() <= new Date(p.prazo_em).getTime() : p.no_prazo);
     if (para === 'CANCELADO' && p.pagamento_status === 'PENDENTE') p.pagamento_status = 'CANCELADO';
     this._gravar(e);
     return { id: id, status: para };
@@ -426,9 +434,11 @@
   };
   BackendDemo.prototype.filaCozinha = async function () {
     this._exigirLogin();
+    var ents = this._estado().entregadores || [];
     return this._estado().pedidos.filter(function (p) { return p.status === 'ACEITO' || p.status === 'EM_PREPARACAO'; }).map(function (p) {
+      var ent = ents.filter(function (x) { return x.id === p.entregador_id; })[0];
       return { id: p.id, numero: p.numero, status: p.status, modalidade: p.modalidade, mesa: p.mesa, primeiro_nome: p.nome.split(' ')[0],
-        observacoes: p.observacoes, criado_em: p.criado_em, itens: p.itens };
+        observacoes: p.observacoes, criado_em: p.criado_em, itens: p.itens, prazo_em: p.prazo_em || null, entregador: ent ? ent.nome : null };
     });
   };
   BackendDemo.prototype.minhasEntregas = async function () { this._exigirLogin(); return []; };

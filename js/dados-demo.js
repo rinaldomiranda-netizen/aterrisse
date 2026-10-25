@@ -72,7 +72,7 @@
       loja: {
         nome: 'Restaurante Aterrisse', logo_url: 'assets/marca/selo_256.png', whatsapp: '5579988476641', aberto: true, aviso: null,
         horario_funcionamento: null, aceita_entrega: true, aceita_retirada: true, aceita_local: true,
-        taxa_entrega: 0, pedido_minimo: 0, mesa_modo: 'opcional', previsao_retirada_min: null, previsao_entrega_min: null,
+        taxa_entrega: 0, pedido_minimo: 0, mesa_modo: 'opcional', previsao_retirada_min: 30, previsao_entrega_min: 30, previsao_local_min: 30,
         pagamentos: [
           { id: 'pix', nome: 'Pix (combinado com o restaurante)', ativo: true },
           { id: 'dinheiro', nome: 'Dinheiro', ativo: true },

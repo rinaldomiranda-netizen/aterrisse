@@ -400,6 +400,7 @@
       if (m[0] === 'entrega' && Number(l.taxa_entrega) > 0) extra = 'taxa ' + N.reais(l.taxa_entrega);
       if (m[0] === 'entrega' && l.previsao_entrega_min) extra += (extra ? ' · ' : '') + 'cerca de ' + l.previsao_entrega_min + ' min';
       if (m[0] === 'retirada' && l.previsao_retirada_min) extra = 'pronto em cerca de ' + l.previsao_retirada_min + ' min';
+      if (m[0] === 'local' && l.previsao_local_min) extra = 'pronto em cerca de ' + l.previsao_local_min + ' min';
       h += '<label class="opcao' + (m[2] ? '' : ' desativada') + '"><input type="radio" name="modalidade" value="' + m[0] + '"' + (f.modalidade === m[0] ? ' checked' : '') + (m[2] ? '' : ' disabled') +
         ' data-acao="modalidade"> ' + m[1] + (m[2] ? '' : ' (indisponível)') + (extra ? '<span class="preco-opcao">' + esc(extra) + '</span>' : '') + '</label>';
     });
@@ -484,7 +485,7 @@
     };
     try {
       var r = await api.criarPedido(dados);
-      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste };
+      estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste, prazo_em: r.prazo_em || null };
       estado.ultimo = { numero: r.numero, acompanhamento: r.acompanhamento, criado_em: r.criado_em, demo: api.modo === 'demo' };
       gravarLocal('aterrisse_ultimo_pedido', estado.ultimo);
       estado.sacola = []; salvarSacola();
@@ -514,6 +515,11 @@
       var k = ordem.indexOf(p.status);
       h += '<ul class="linha-tempo" aria-label="Andamento do pedido">' + ordem.map(function (s, i) { return '<li class="' + (i <= k ? 'feito' : '') + '">' + N.STATUS_NOMES[s] + (i === k ? ' ← agora' : '') + '</li>'; }).join('') + '</ul>';
     }
+    if (p.status === 'SAIU_PARA_ENTREGA' && p.entregador) h += '<p class="resumo-bloco">🛵 Seu pedido saiu com <b>' + esc(p.entregador) + '</b>.</p>';
+    if (p.prazo_em && ['ENTREGUE', 'CONCLUIDO', 'CANCELADO'].indexOf(p.status) < 0) {
+      h += '<p class="resumo-bloco">⏱ Previsão: ' + (p.modalidade === 'entrega' ? 'chega até ' : p.modalidade === 'retirada' ? 'pronto para retirar até ' : 'pronto até ') +
+        '<b>' + esc(N.horaCurta(p.prazo_em)) + '</b></p>';
+    }
     h += '<p><b>Total: ' + N.reais(p.total) + '</b></p>';
     if (p.itens && p.itens.length) {
       var texto = N.textoResumoPedido(p, l);
@@ -532,8 +538,8 @@
     try {
       var r = await api.acompanhar(u.numero, u.acompanhamento);
       if (!r) return;
-      estado.ultimoEnvio = estado.ultimoEnvio && estado.ultimoEnvio.numero === r.numero ? Object.assign(estado.ultimoEnvio, { status: r.status })
-        : { numero: r.numero, acompanhamento: u.acompanhamento, total: r.total, modalidade: r.modalidade, status: r.status, demo: u.demo };
+      estado.ultimoEnvio = estado.ultimoEnvio && estado.ultimoEnvio.numero === r.numero ? Object.assign(estado.ultimoEnvio, { status: r.status, prazo_em: r.prazo_em || estado.ultimoEnvio.prazo_em, entregador: r.entregador || null })
+        : { numero: r.numero, acompanhamento: u.acompanhamento, total: r.total, modalidade: r.modalidade, status: r.status, demo: u.demo, prazo_em: r.prazo_em || null, entregador: r.entregador || null };
       if ($('#janela-raiz').dataset.aberta === 'sacola' && estado.etapa === 'enviado') renderSacola();
     } catch (e) { /* tenta de novo no próximo ciclo */ }
   }

@@ -300,6 +300,32 @@
     } catch (e) { return 'invalido'; }
   }
 
+  // ------------------------------------------------------------ prazo de cada pedido (contagem regressiva)
+
+  // Verde com folga; amarelo nos últimos 10 min; vermelho quando passa do prazo.
+  function prazoInfo(prazoIso, agoraMs) {
+    if (!prazoIso) return null;
+    var falta = new Date(prazoIso).getTime() - (agoraMs === undefined ? Date.now() : agoraMs);
+    if (falta >= 0) {
+      var seg = Math.floor(falta / 1000);
+      var texto = Math.floor(seg / 60) + ':' + ('0' + (seg % 60)).slice(-2);
+      return { texto: texto, classe: falta <= 10 * 60000 ? 'alerta' : 'ok', atrasado: false };
+    }
+    return { texto: 'ATRASADO há ' + Math.max(1, Math.floor(-falta / 60000)) + ' min', classe: 'atrasado', atrasado: true };
+  }
+
+  function horaCurta(iso, fuso) {
+    try { return new Intl.DateTimeFormat('pt-BR', { timeZone: fuso || FUSO, hour: '2-digit', minute: '2-digit' }).format(new Date(iso)); }
+    catch (e) { return ''; }
+  }
+
+  // Link para abrir o endereço no Google Maps (só o endereço; sem rastreamento).
+  function linkMapa(endereco) {
+    if (!endereco) return '';
+    var t = [endereco.rua, endereco.numero].filter(Boolean).join(', ') + (endereco.bairro ? ' - ' + endereco.bairro : '');
+    return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t);
+  }
+
   function escaparHtml(t) {
     return String(t === null || t === undefined ? '' : t).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -316,6 +342,7 @@
     soDigitos: soDigitos, normalizarTelefone: normalizarTelefone, validarCheckout: validarCheckout, validarTroco: validarTroco,
     linkWhatsApp: linkWhatsApp, textoResumoPedido: textoResumoPedido,
     transicaoValida: transicaoValida, proximosStatus: proximosStatus,
-    resumoPedidos: resumoPedidos, relatorioPedidos: relatorioPedidos, enderecoLocal: enderecoLocal, escaparHtml: escaparHtml
+    resumoPedidos: resumoPedidos, relatorioPedidos: relatorioPedidos, enderecoLocal: enderecoLocal, escaparHtml: escaparHtml,
+    prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa
   };
 });

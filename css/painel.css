@@ -77,3 +77,4 @@
   .cartaz-qr svg { width: 9cm; height: 9cm; }
 }
 .st-TESTE { background: #3b2a06; color: var(--aviso); border: 1px dashed #8a6d20; }
+.pedido-linha .info small { display: block; }

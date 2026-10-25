@@ -90,8 +90,10 @@
         : '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe do Aterrisse. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
       return;
     }
+    if (st.papel === 'entregador') { location.href = 'entregador.html'; return; }
     try { st.lojaPub = (await api.cardapio()).loja; } catch (e) { /* sem conexão: segue com o padrão */ }
     renderFaixas();
+    window.AterrissePrazo.aoAtrasar(function (id, numero) { bip(); toast('⚠ Pedido #' + numero + ' passou do prazo!'); });
     var s = api.sessao() || {};
     $('#quem').textContent = (s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
     $('#btn-sair').classList.remove('oculto');
@@ -129,11 +131,12 @@
   async function carregarAba(aba) {
     if (aba === 'inicio' || aba === 'pedidos' || aba === 'entregas') {
       st.pedidos = await api.listarPedidos(2);
-      if (aba !== 'inicio') st.entregadores = await api.listarEntregadores();
+      st.entregadores = await api.listarEntregadores();
       if (!st.lojaPub) st.lojaPub = (await api.cardapio()).loja;
       marcarVistos();
     }
     if (aba === 'cozinha') { st.fila = await api.filaCozinha(); if (st.papel !== 'cozinha') st.pedidos = await api.listarPedidos(2); }
+
     if (aba === 'minhas') st.minhas = await api.minhasEntregas();
     if (aba === 'cardapio' || aba === 'horarios' || aba === 'loja' || aba === 'qrcode') st.adm = await api.cardapioCompleto();
     if (aba === 'equipe') { st.entregadores = await api.listarEntregadores(); st.equipe = await api.listarEquipe(); }
@@ -203,11 +206,19 @@
 
   // ================================================================ pedidos
 
+  function nomeEntregador(p) {
+    if (p.entregador) return p.entregador; // a fila da cozinha já vem com o nome
+    var e = st.entregadores.filter(function (x) { return x.id === p.entregador_id; })[0];
+    return e ? e.nome : '';
+  }
+
   function linhaPedido(p) {
+    var ent = p.modalidade === 'entrega' ? nomeEntregador(p) : '';
     var onde = p.modalidade === 'entrega' ? (p.endereco ? p.endereco.bairro : '') : p.modalidade === 'local' ? (p.mesa ? 'Mesa ' + p.mesa : 'Na loja') : 'Balcão';
     return '<button class="pedido-linha" type="button" data-acao="abrir-pedido" data-id="' + esc(p.id) + '"><span class="num">#' + esc(p.numero) + '</span>' +
-      '<span class="info"><b>' + (p.teste ? '<span class="status st-TESTE">TESTE</span> ' : '') + esc(p.nome) + '</b><small>' + esc(N.dataHora(p.criado_em)) + ' · ' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (onde ? ' · ' + esc(onde) : '') + '</small></span>' +
-      '<span class="lado"><span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span><br><b>' + N.reais(p.total) + '</b></span></button>';
+      '<span class="info"><b>' + (p.teste ? '<span class="status st-TESTE">TESTE</span> ' : '') + esc(p.nome) + '</b><small>' + esc(N.dataHora(p.criado_em)) + ' · ' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (onde ? ' · ' + esc(onde) : '') + '</small>' +
+      (ent ? '<small>🛵 ' + esc(ent) + '</small>' : (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0 ? '<small style="color:var(--aviso)">sem entregador</small>' : '')) + '</span>' +
+      '<span class="lado">' + (window.AterrissePrazo.html(p) ? window.AterrissePrazo.html(p) + '<br>' : '') + '<span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span><br><b>' + N.reais(p.total) + '</b></span></button>';
   }
 
   function telaPedidos() {
@@ -244,12 +255,14 @@
   function htmlPedido(p) {
     var h = '<div class="janela-cab"><h2 id="janela-titulo">Pedido #' + esc(p.numero) + ' <span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span>' + (p.teste ? ' <span class="status st-TESTE">TESTE</span>' : '') + '</h2>' +
       '<button class="fechar" type="button" data-acao="fechar" aria-label="Fechar">×</button></div>';
+    if (p.prazo_em) h += '<div class="resumo-bloco" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span>Prazo: até <b>' + esc(N.horaCurta(p.prazo_em)) + '</b></span>' + window.AterrissePrazo.html(p) + '</div>';
     h += '<div class="resumo-bloco"><h3>' + esc(N.MODALIDADE_NOMES[p.modalidade]) + ' · ' + esc(N.dataHora(p.criado_em)) + '</h3><div><b>' + esc(p.nome) + '</b></div>';
     if (p.telefone) {
       h += '<div>📞 <a href="tel:+' + esc(N.normalizarTelefone(p.telefone)) + '">' + esc(p.telefone) + '</a> · <a href="' + esc(N.linkWhatsApp(N.normalizarTelefone(p.telefone), 'Olá, ' + p.nome.split(' ')[0] + '! Aqui é do Restaurante Aterrisse, sobre o seu pedido nº ' + p.numero + '.')) + '" target="_blank" rel="noopener">WhatsApp do cliente</a></div>';
     }
     if (p.endereco) { var e = p.endereco; h += '<div>📍 ' + esc(e.rua + ', ' + e.numero + ' — ' + e.bairro) + (e.complemento ? ' · ' + esc(e.complemento) : '') + (e.referencia ? '<br>Ref.: ' + esc(e.referencia) : '') + '</div>'; }
     if (p.mesa) h += '<div>🍽️ Mesa/código: <b>' + esc(p.mesa) + '</b></div>';
+    if (p.modalidade === 'entrega' && nomeEntregador(p)) h += '<div>🛵 Entregador: <b>' + esc(nomeEntregador(p)) + '</b></div>';
     h += '</div>';
     h += '<div class="resumo-bloco"><h3>Itens</h3>' + p.itens.map(function (i) {
       var d = (i.adicionais || []).map(function (a) { return a.nome + (Number(a.preco) ? ' (+' + N.reais(a.preco) + ')' : ''); }).join(', ');
@@ -312,7 +325,8 @@
 
   function ticket(p) {
     var prox = N.proximosStatus(p.modalidade, p.status).filter(function (s) { return s !== 'CANCELADO'; });
-    return '<div class="ticket"><h4>#' + esc(p.numero) + ' · ' + esc(p.primeiro_nome || p.nome || '') + '</h4><div>' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (p.mesa ? ' · Mesa ' + esc(p.mesa) : '') + ' · ' + esc(N.dataHora(p.criado_em)) + '</div><ul>' +
+    return '<div class="ticket"><div style="float:right">' + window.AterrissePrazo.html(p) + '</div><h4>#' + esc(p.numero) + ' · ' + esc(p.primeiro_nome || p.nome || '') + '</h4>' +
+      (p.modalidade === 'entrega' && nomeEntregador(p) ? '<div><b>🛵 ' + esc(nomeEntregador(p)) + '</b></div>' : '') + '<div>' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (p.mesa ? ' · Mesa ' + esc(p.mesa) : '') + ' · ' + esc(N.dataHora(p.criado_em)) + '</div><ul>' +
       p.itens.map(function (i) {
         var d = (i.adicionais || []).map(function (a) { return a.nome; }).join(', ');
         return '<li><b>' + i.quantidade + '× ' + esc(i.nome) + '</b>' + (d ? '<br>' + esc(d) : '') + (i.removidos && i.removidos.length ? '<br>SEM: ' + esc(i.removidos.join(', ')) : '') +
@@ -339,7 +353,7 @@
     if (!st.entregadores.length) h += '<div class="aviso-caixa">Nenhum entregador cadastrado. Cadastre em Equipe.</div>';
     h += lista.length ? '<div class="lista-pedidos">' + lista.map(function (p) {
       var ent = st.entregadores.filter(function (e) { return e.id === p.entregador_id; })[0];
-      return linhaPedido(p).replace('</span></button>', '<br><small>' + (ent ? '🛵 ' + esc(ent.nome) : 'sem entregador') + '</small></span></button>');
+      return linhaPedido(p);
     }).join('') + '</div>' : '<div class="vazio">Nenhuma entrega em andamento.</div>';
     return h;
   }
@@ -534,6 +548,8 @@
       '<div class="campo"><label for="lj-min">Pedido mínimo (R$)</label><input id="lj-min" type="number" step="0.01" min="0" value="' + esc(l.pedido_minimo) + '"></div></div>' +
       '<div class="linha-2"><div class="campo"><label for="lj-pent">Previsão de entrega (min)</label><input id="lj-pent" type="number" min="0" max="240" value="' + esc(l.previsao_entrega_min || '') + '"></div>' +
       '<div class="campo"><label for="lj-pret">Previsão de retirada (min)</label><input id="lj-pret" type="number" min="0" max="240" value="' + esc(l.previsao_retirada_min || '') + '"></div></div>' +
+      '<div class="campo"><label for="lj-ploc">Previsão do consumo na loja (min)</label><input id="lj-ploc" type="number" min="0" max="240" value="' + esc(l.previsao_local_min || '') + '">' +
+      '<span class="ajuda">O prazo de cada pedido (contagem regressiva) = hora em que chegou + estes minutos. Vazio = sem prazo. Mudar aqui não altera pedidos que já chegaram.</span></div>' +
       '<div class="campo"><label for="lj-mesa">Mesa no consumo na loja</label><select id="lj-mesa">' + [['desligado', 'Não perguntar mesa'], ['opcional', 'Mesa opcional'], ['obrigatoria', 'Mesa obrigatória']].map(function (o) {
         return '<option value="' + o[0] + '"' + (l.mesa_modo === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div></div>';
     h += '<div class="caixa"><h3 style="margin-top:0">Formas de pagamento</h3><p style="font-size:13px;color:var(--texto-2)">Nenhum pagamento é cobrado pelo site. Pix online fica desligado até haver um provedor configurado e testado.</p><div id="lista-pag">' +
@@ -607,6 +623,7 @@
       aceita_entrega: v('lj-ent').checked, aceita_retirada: v('lj-ret').checked, aceita_local: v('lj-loc').checked,
       taxa_entrega: Number(v('lj-taxa').value) || 0, pedido_minimo: Number(v('lj-min').value) || 0,
       previsao_entrega_min: v('lj-pent').value ? Number(v('lj-pent').value) : null, previsao_retirada_min: v('lj-pret').value ? Number(v('lj-pret').value) : null,
+      previsao_local_min: v('lj-ploc').value ? Number(v('lj-ploc').value) : null,
       mesa_modo: v('lj-mesa').value, pagamentos: l.pagamentos, url_publica: v('lj-url').value.trim() || null
     };
   }
@@ -714,7 +731,7 @@
     }).join('') : '<p>Nenhum entregador.</p>') +
       '<form id="form-entregador" class="barra-acoes"><input class="entrada" id="e-nome" required minlength="2" maxlength="80" placeholder="Nome" aria-label="Nome do entregador">' +
       '<input class="entrada" id="e-tel" inputmode="tel" maxlength="20" placeholder="Telefone (opcional)" aria-label="Telefone do entregador"><button class="btn btn-ouro btn-peq" type="submit">+ Entregador</button></form>' +
-      '<p style="font-size:13px;color:var(--texto-2)">Para o entregador atualizar as entregas pelo celular, ele cria a conta e você libera acima com o papel “Entregador”.</p></div>';
+      '<p style="font-size:13px;color:var(--texto-2)">Cada entregador tem tela própria no celular: <a href="entregador.html" target="_blank" rel="noopener">entregador.html</a>. Ele cria a conta lá (“Ainda não tenho conta”) e você libera acima com o papel “Entregador”. Ele vê só as entregas dele, com prazo, endereço e botão do mapa.</p></div>';
     return h;
   }
 
