@@ -141,7 +141,7 @@
 
     if (aba === 'minhas') st.minhas = await api.minhasEntregas();
     if (aba === 'cardapio' || aba === 'horarios' || aba === 'loja' || aba === 'qrcode') st.adm = await api.cardapioCompleto();
-    if (aba === 'post') st.cardPub = await api.cardapio();
+    if (aba === 'post') { st.cardPub = await api.cardapio(); try { st.adm = await api.cardapioCompleto(); } catch (e) { st.adm = null; } }
     if (aba === 'equipe') { st.entregadores = await api.listarEntregadores(); st.equipe = await api.listarEquipe(); }
   }
 
@@ -381,6 +381,64 @@
     }).join('');
   }
 
+  // ================================================================ cardápio do dia (tem / não tem)
+  // Os grupos "do dia" (carne, feijão, acompanhamentos, salada…: obrigatórios ou sem preço) de cada categoria,
+  // juntos numa lista só. Quentinha P e G têm os mesmos grupos: marcar "não tem" vale para as duas.
+  // É o mesmo dado do cardápio: muda o que o cliente vê para escolher e o que sai no Post do dia.
+  function gruposDoDia() {
+    if (!st.adm) return [];
+    var doDia = function (g) { return Number(g.minimo) >= 1 || (g.opcoes || []).every(function (o) { return !Number(o.preco); }); };
+    var lista = [], porChave = {};
+    st.adm.categorias.slice().sort(function (x, y) { return x.ordem - y.ordem; }).forEach(function (c) {
+      st.adm.produtos.filter(function (p) { return p.categoria_id === c.id && p.ativo !== false; }).sort(function (x, y) { return x.ordem - y.ordem; }).forEach(function (p) {
+        (p.grupos || []).filter(doDia).forEach(function (g) {
+          var chave = c.id + '|' + g.nome + '|' + (g.opcoes || []).map(function (o) { return o.nome; }).sort().join('/');
+          var item = porChave[chave];
+          if (!item) { item = porChave[chave] = { categoria: c, nome: g.nome, opcoes: g.opcoes || [], produtos: [] }; lista.push(item); }
+          item.produtos.push(p);
+        });
+      });
+    });
+    return lista;
+  }
+
+  function htmlCardapioDoDia() {
+    var lista = gruposDoDia();
+    st.diaGrupos = lista;
+    if (!lista.length) return '';
+    var h = '<div class="caixa dia-caixa"><h3 style="margin-top:0">🍛 Cardápio do dia: o que tem hoje</h3>' +
+      '<p class="dia-ajuda">Toque no item para trocar entre <b>Tem</b> e <b>Não tem</b>. O cliente só consegue escolher o que tem, e o Post do dia mostra só o que tem. Faltou um item? Escreva no fim do grupo e toque em Acrescentar.</p>';
+    var cat = null;
+    lista.forEach(function (it, k) {
+      if (it.categoria !== cat) { cat = it.categoria; h += '<h4 class="dia-cat">' + esc((cat.icone ? cat.icone + ' ' : '') + cat.nome) + '</h4>'; }
+      var nomes = it.produtos.map(function (p) { return p.nome; });
+      h += '<div class="dia-grupo"><div class="dia-nome">' + esc(it.nome) + ' <small>(' + esc(nomes.join(', ')) + ')</small></div><div class="dia-opcoes">' +
+        it.opcoes.map(function (o) {
+          var tem = o.disponivel !== false;
+          return '<button type="button" class="dia-op' + (tem ? ' tem' : '') + '" data-acao="dia-tem" data-k="' + k + '" data-nome="' + esc(o.nome) + '" aria-pressed="' + tem + '">' +
+            '<span aria-hidden="true">' + (tem ? '✅' : '⛔') + '</span><b>' + esc(o.nome) + '</b><em>' + (tem ? 'Tem' : 'Não tem') + '</em></button>';
+        }).join('') + '</div>' +
+        '<div class="dia-novo"><input type="text" id="dia-novo-' + k + '" maxlength="60" placeholder="Novo item em ' + esc(it.nome) + '" aria-label="Novo item em ' + esc(it.nome) + '">' +
+        '<button class="btn btn-linha btn-peq" type="button" data-acao="dia-acrescentar" data-k="' + k + '">+ Acrescentar</button></div></div>';
+    });
+    return h + '</div>';
+  }
+
+  // Grava a mudança em todos os produtos do grupo (ex.: Quentinha P e G) e redesenha a aba atual.
+  async function mudarDoDia(k, mudar, ok) {
+    var it = st.diaGrupos[k];
+    if (!it) return;
+    try {
+      for (var i = 0; i < it.produtos.length; i++) {
+        var p = JSON.parse(JSON.stringify(it.produtos[i]));
+        var g = p.grupos.filter(function (x) { return x.nome === it.nome; })[0];
+        if (g) { mudar(g); await api.salvarProduto(p); }
+      }
+      toast(ok);
+    } catch (e) { alert(e.message || 'Não foi possível salvar.'); }
+    await irPara(st.aba);
+  }
+
   // ================================================================ cardápio (admin)
 
   function telaCardapio() {
@@ -388,6 +446,7 @@
     var h = '<h2>Cardápio</h2><div class="barra-acoes"><button class="btn btn-ouro btn-peq" type="button" data-acao="novo-produto">+ Novo produto</button>' +
       '<button class="btn btn-linha btn-peq" type="button" data-acao="nova-categoria">+ Nova categoria</button>' +
       (abasLiberadas().indexOf('post') >= 0 ? '<button class="btn btn-linha btn-peq" type="button" data-acao="aba" data-aba="post">📣 Post do dia para o Status</button>' : '') + '</div>';
+    h += htmlCardapioDoDia();
     h += '<div class="aviso-caixa">Itens com a etiqueta <b>Exemplo</b> são fictícios (preço a confirmar). Edite ou apague antes de divulgar o cardápio. Fotos: cole o endereço de uma imagem própria/autorizada no produto; sem foto, aparece o ícone.</div>';
     a.categorias.slice().sort(function (x, y) { return x.ordem - y.ordem; }).forEach(function (c) {
       var prods = a.produtos.filter(function (p) { return p.categoria_id === c.id; }).sort(function (x, y) { return x.ordem - y.ordem; });
@@ -715,6 +774,7 @@
     var op = function (v, rot, atual) { return '<option value="' + esc(v) + '"' + (v === atual ? ' selected' : '') + '>' + esc(rot) + '</option>'; };
     return '<h2>📣 Post do dia para o Status</h2>' +
       '<p style="color:var(--texto-2);font-size:14px;margin-top:0">A arte sai do próprio cardápio: só entram as opções e produtos <b>disponíveis</b>. Marcou algo como esgotado no Cardápio? Ele some do post. Depois toque em <b>Compartilhar</b> → WhatsApp → <b>Meu status</b>.</p>' +
+      htmlCardapioDoDia() +
       '<div class="post-grade"><form id="form-post" class="caixa" onsubmit="return false">' +
       '<div class="campo"><label for="pd-cat">O que divulgar</label><select id="pd-cat">' + c.categorias.map(function (x) { return op(x.id, (x.icone ? x.icone + ' ' : '') + x.nome, catSel && catSel.id); }).join('') + '</select></div>' +
       '<div class="campo"><label for="pd-titulo">Título</label><input id="pd-titulo" maxlength="40" value="' + esc(s.titulo || 'Cardápio do Dia') + '"></div>' +
@@ -820,6 +880,28 @@
     if (a === 'fechar') fecharJanela();
     else if (a === 'sair') { if (st.timer) clearInterval(st.timer); await api.sair(); st.papel = null; telaLogin(); }
     else if (a === 'aba') irPara(el.dataset.aba);
+    else if (a === 'dia-tem') {
+      var nomeOp = el.dataset.nome, temAgora = el.getAttribute('aria-pressed') === 'true';
+      el.disabled = true;
+      var itTem = st.diaGrupos[Number(el.dataset.k)];
+      try {
+        for (var ip = 0; ip < itTem.produtos.length; ip++) {
+          var gp = (itTem.produtos[ip].grupos || []).filter(function (x) { return x.nome === itTem.nome; })[0];
+          var op = gp && gp.opcoes.filter(function (o) { return o.nome === nomeOp; })[0];
+          if (op) await api.alterarOpcao(op.id, !temAgora);
+        }
+        toast(temAgora ? nomeOp + ': não tem hoje.' : nomeOp + ': tem hoje.');
+      } catch (e) { alert(e.message || 'Não foi possível salvar.'); }
+      await irPara(st.aba);
+    }
+    else if (a === 'dia-acrescentar') {
+      var campo = $('#dia-novo-' + el.dataset.k), nomeNovo = campo ? campo.value.trim() : '';
+      if (nomeNovo.length < 2) { alert('Escreva o nome do item.'); if (campo) campo.focus(); return; }
+      var itDia = st.diaGrupos[Number(el.dataset.k)];
+      if (itDia.opcoes.some(function (o) { return o.nome.toLowerCase() === nomeNovo.toLowerCase(); })) { alert('Esse item já está na lista.'); return; }
+      el.disabled = true;
+      await mudarDoDia(Number(el.dataset.k), function (g) { g.opcoes.push({ id: idNovo(), nome: nomeNovo, preco: 0, disponivel: true }); }, nomeNovo + ' acrescentado.');
+    }
     else if (a === 'filtro') { st.filtro = el.dataset.filtro; render(); }
     else if (a === 'abrir-pedido') { if (!st.entregadores.length && st.papel !== 'cozinha') { try { st.entregadores = await api.listarEntregadores(); } catch (e) { /* segue */ } } abrirPedido(id); }
     else if (a === 'status') mudarStatus(id, el.dataset.para);

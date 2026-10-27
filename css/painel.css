@@ -93,3 +93,18 @@
 .post-previa { position: sticky; top: 12px; }
 .post-previa canvas { width: 100%; height: auto; aspect-ratio: 9 / 16; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.45); background: #222; display: block; }
 @media (max-width: 760px) { .post-grade { grid-template-columns: minmax(0, 1fr); } .post-previa { position: static; max-width: 340px; margin: 0 auto; } }
+/* Cardápio do dia: botões grandes de tem e não tem */
+.dia-caixa { border: 2px solid var(--ouro); }
+.dia-ajuda { color: var(--texto-2); font-size: 14px; margin-top: 0; }
+.dia-cat { margin: 14px 0 4px; color: var(--creme); }
+.dia-grupo { padding: 10px 0; border-top: 1px solid var(--linha); }
+.dia-nome { font-weight: 700; margin-bottom: 8px; }
+.dia-nome small { font-weight: 400; color: var(--texto-2); }
+.dia-opcoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.dia-op { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--linha); background: rgba(0, 0, 0, .25); color: var(--texto-2); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.dia-op b { font-weight: 600; }
+.dia-op em { margin-left: auto; font-style: normal; font-size: 12px; }
+.dia-op.tem { border-color: var(--ok); color: var(--texto); background: rgba(76, 207, 126, .12); }
+.dia-op:not(.tem) b { text-decoration: line-through; }
+.dia-novo { display: flex; gap: 8px; margin-top: 8px; }
+.dia-novo input { flex: 1; min-width: 0; }

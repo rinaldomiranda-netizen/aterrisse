@@ -178,7 +178,7 @@
       this._req('GET', 'aterrisse_loja?id=eq.1&select=*'),
       this._req('GET', 'aterrisse_destaques?select=*&order=ordem'),
       this._req('GET', 'aterrisse_categorias?select=*&order=ordem'),
-      this._req('GET', 'aterrisse_produtos?select=*,aterrisse_adicionais_grupos(*,aterrisse_adicionais(*))&order=ordem')
+      this._req('GET', 'aterrisse_produtos?select=*,gr:aterrisse_adicionais_grupos(*,op:aterrisse_adicionais(*))&order=ordem') // apelidos gr/op: na demonstração as tabelas são aterrisse_demo_*
     ]);
     var loja = r[0][0] || {};
     loja.taxa_entrega = Number(loja.taxa_entrega || 0); loja.pedido_minimo = Number(loja.pedido_minimo || 0);
@@ -188,13 +188,13 @@
       categorias: r[2],
       produtos: r[3].map(function (p) {
         p.preco = Number(p.preco);
-        p.grupos = (p.aterrisse_adicionais_grupos || []).sort(function (a, b) { return a.ordem - b.ordem; }).map(function (g) {
-          g.opcoes = (g.aterrisse_adicionais || []).sort(function (a, b) { return a.ordem - b.ordem; })
+        p.grupos = (p.gr || []).sort(function (a, b) { return a.ordem - b.ordem; }).map(function (g) {
+          g.opcoes = (g.op || []).sort(function (a, b) { return a.ordem - b.ordem; })
             .map(function (o) { o.preco = Number(o.preco); delete o.grupo_id; return o; });
-          delete g.aterrisse_adicionais; delete g.produto_id;
+          delete g.op; delete g.produto_id;
           return g;
         });
-        delete p.aterrisse_adicionais_grupos;
+        delete p.gr;
         return p;
       })
     };
@@ -218,6 +218,10 @@
   BackendSupabase.prototype.alterarProduto = function (id, campos) {
     return this._req('PATCH', 'aterrisse_produtos?id=eq.' + id, escolher(campos, CAMPOS_PRODUTO), 'return=minimal');
   };
+  // tem / não tem de uma opção do dia (carne, feijão…): só o campo disponivel, um envio por opção
+  BackendSupabase.prototype.alterarOpcao = function (id, disponivel) {
+    return this._req('PATCH', 'aterrisse_adicionais?id=eq.' + id, { disponivel: !!disponivel }, 'return=minimal');
+  };
   BackendSupabase.prototype.apagarProduto = function (id) { return this._req('DELETE', 'aterrisse_produtos?id=eq.' + id); };
 
   // Salva o produto com os grupos de adicionais e as opções (cria, altera e remove o que saiu).
@@ -228,7 +232,7 @@
     if (novo) id = (await this._req('POST', 'aterrisse_produtos?select=id', linha, 'return=representation'))[0].id;
     else await this._req('PATCH', 'aterrisse_produtos?id=eq.' + id, linha, 'return=minimal');
 
-    var antigos = await this._req('GET', 'aterrisse_adicionais_grupos?produto_id=eq.' + id + '&select=id,aterrisse_adicionais(id)');
+    var antigos = await this._req('GET', 'aterrisse_adicionais_grupos?produto_id=eq.' + id + '&select=id,op:aterrisse_adicionais(id)');
     var mantidos = (p.grupos || []).filter(function (g) { return g.id && String(g.id).indexOf('novo') !== 0; }).map(function (g) { return g.id; });
     var sairam = antigos.filter(function (g) { return mantidos.indexOf(g.id) < 0; }).map(function (g) { return g.id; });
     if (sairam.length) await this._req('DELETE', 'aterrisse_adicionais_grupos?id=in.(' + sairam.join(',') + ')');
@@ -238,7 +242,7 @@
       var gl = { produto_id: id, nome: g.nome, minimo: Number(g.minimo), maximo: Number(g.maximo), ordem: gi + 1 };
       if (!gid || String(gid).indexOf('novo') === 0) gid = (await self._req('POST', 'aterrisse_adicionais_grupos?select=id', gl, 'return=representation'))[0].id;
       else await self._req('PATCH', 'aterrisse_adicionais_grupos?id=eq.' + gid, gl, 'return=minimal');
-      var ant = (antigos.filter(function (a) { return a.id === gid; })[0] || { aterrisse_adicionais: [] }).aterrisse_adicionais.map(function (o) { return o.id; });
+      var ant = (antigos.filter(function (a) { return a.id === gid; })[0] || { op: [] }).op.map(function (o) { return o.id; });
       var ficam = (g.opcoes || []).filter(function (o) { return o.id && String(o.id).indexOf('novo') !== 0; }).map(function (o) { return o.id; });
       var tirar = ant.filter(function (o) { return ficam.indexOf(o) < 0; });
       if (tirar.length) await self._req('DELETE', 'aterrisse_adicionais?id=in.(' + tirar.join(',') + ')');
@@ -598,6 +602,11 @@
     var p = e.produtos.filter(function (x) { return x.id === id; })[0];
     if (!p) throw Erro('Produto não encontrado.', 'NAO_ENCONTRADO');
     CAMPOS_PRODUTO.forEach(function (k) { if (campos[k] !== undefined) p[k] = campos[k]; });
+    this._auditar(e, 'produto'); this._gravar(e);
+  };
+  BackendDemo.prototype.alterarOpcao = async function (id, disponivel) {
+    this._exigirLogin(); var e = this._estado();
+    e.produtos.forEach(function (p) { (p.grupos || []).forEach(function (g) { (g.opcoes || []).forEach(function (o) { if (o.id === id) o.disponivel = !!disponivel; }); }); });
     this._auditar(e, 'produto'); this._gravar(e);
   };
   BackendDemo.prototype.apagarProduto = async function (id) {
