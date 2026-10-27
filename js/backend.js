@@ -298,6 +298,9 @@
   BackendSupabase.prototype.rmdTirarAcesso = function (userId) { return this._rpc('aterrisse_rmd_tirar_acesso', { p_user: userId }); };
   BackendSupabase.prototype.rmdErros = function (todos) { return this._rpc('aterrisse_rmd_erros', { p_todos: !!todos }); };
   BackendSupabase.prototype.rmdErroResolvido = function (id, resolvido) { return this._rpc('aterrisse_rmd_erro_resolvido', { p_id: id, p_resolvido: resolvido }); };
+  // inscrições da promoção de lançamento (página de vendas da RMD)
+  BackendSupabase.prototype.rmdInscricoes = function () { return this._rpc('rmd_delivery_inscricoes_listar'); };
+  BackendSupabase.prototype.rmdInscricaoCancelar = function (id, cancelada) { return this._rpc('rmd_delivery_inscricao_cancelar', { p_id: id, p_cancelada: cancelada }); };
 
   // ================================================================ Demonstração (só no navegador)
 
@@ -631,7 +634,7 @@
   BackendDemo.prototype.criarAcesso = async function () { throw Erro('No modo demonstração não há contas da equipe.', 'DEMO'); };
   BackendDemo.prototype.trocarSenha = BackendDemo.prototype.criarAcesso;
   BackendDemo.prototype.souRmd = async function () { return false; };
-  ['rmdPainel', 'rmdControle', 'rmdDarAcesso', 'rmdTirarAcesso', 'rmdErros', 'rmdErroResolvido'].forEach(function (n) {
+  ['rmdPainel', 'rmdControle', 'rmdDarAcesso', 'rmdTirarAcesso', 'rmdErros', 'rmdErroResolvido', 'rmdInscricoes', 'rmdInscricaoCancelar'].forEach(function (n) {
     BackendDemo.prototype[n] = async function () { throw Erro('A área do desenvolvedor só funciona com o banco (MODO supabase).', 'DEMO'); };
   });
 

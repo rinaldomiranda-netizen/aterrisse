@@ -8,19 +8,8 @@
   var esc = N.escaparHtml;
   function $(s) { return document.querySelector(s); }
 
-  // Planos sugeridos para a RMD oferecer (pesquisa de mercado de 25/10/2026; preços de referência, a RMD decide).
-  // "recursos" = o que o botão "Ligar recursos deste plano" deixa ligado na loja.
-  var PLANOS = [
-    { id: 'essencial', nome: 'Essencial', preco: 79.90, anual: 799.00, para: 'Quem está começando o delivery próprio',
-      itens: ['Cardápio online com QR Code e link', 'Pedidos de entrega, retirada e mesa', 'Painel de pedidos com contagem do prazo', 'Logo e cores da loja', 'Pedido também pelo WhatsApp', 'Acessos da equipe com usuário e senha'],
-      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: false, entregadores: false, relatorios: false } },
-    { id: 'profissional', nome: 'Profissional', preco: 149.90, anual: 1499.00, para: 'Restaurante com cozinha e entregadores', destaque: true,
-      itens: ['Tudo do Essencial', 'Tela da cozinha', 'Tela do entregador no celular (sem mapa falso)', 'Nome do entregador e prazo em cada pedido', 'Suporte por WhatsApp em horário comercial'],
-      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: true, entregadores: true, relatorios: false } },
-    { id: 'completo', nome: 'Completo', preco: 229.90, anual: 2299.00, para: 'Quem quer controle e números do negócio',
-      itens: ['Tudo do Profissional', 'Relatórios de vendas e produtos mais pedidos', 'Cadastro inicial do cardápio feito pela RMD', 'QR Codes impressos das mesas', 'Suporte prioritário'],
-      recursos: { entrega: true, retirada: true, local: true, qrcode: true, cozinha: true, entregadores: true, relatorios: true } }
-  ];
+  // Planos e promoção de lançamento: js/planos-rmd.js (os mesmos da página de vendas).
+  var PLANOS = window.RmdPlanos.PLANOS, PROMO = window.RmdPlanos.PROMOCAO;
   var MERCADO = [
     ['Anota AI', 'R$ 99,99 a R$ 299,99/mês conforme o número de pedidos', 'https://anota.ai/blog/faq-anota-ai/'],
     ['Cardápio Web', 'R$ 169,99 (mesas) · R$ 209,99 (delivery) · R$ 269,99 (completo)/mês', 'https://ajuda.cardapioweb.com/boas-vindas/planos-funcionalidades-e-modulos-adicionais'],
@@ -33,7 +22,7 @@
     ['cozinha', 'Tela da cozinha'], ['entregadores', 'Entregadores'], ['qrcode', 'QR Code'], ['relatorios', 'Relatórios do restaurante']
   ];
   var PAPEIS = { admin: 'Dono / administrador', atendente: 'Atendente', cozinha: 'Cozinha', entregador: 'Entregador' };
-  var st = { painel: null, erros: [], verResolvidos: false };
+  var st = { painel: null, erros: [], verResolvidos: false, inscricoes: [] };
 
   function toast(msg) {
     var t = document.createElement('div');
@@ -75,6 +64,7 @@
     try {
       st.painel = await api.rmdPainel();
       st.erros = await api.rmdErros(st.verResolvidos);
+      try { st.inscricoes = await api.rmdInscricoes(); } catch (e) { st.inscricoes = null; } // sem a tabela ainda: só esconde a seção
       render();
     } catch (e) {
       $('#conteudo').innerHTML = '<div class="erro-caixa" role="alert">' + esc(e.message) + ' <button class="btn btn-linha btn-peq" type="button" data-acao="recarregar">Tentar de novo</button></div>';
@@ -107,6 +97,7 @@
       '<button class="btn btn-ouro" type="submit">Salvar liberação</button></form>';
 
     h += htmlPlanos(c.recursos || {});
+    h += htmlInscricoes();
 
     h += '<div class="caixa"><h3 style="margin-top:0">Acessos do restaurante</h3>' + (p.equipe.length
       ? p.equipe.map(function (m) {
@@ -135,6 +126,31 @@
     $('#conteudo').innerHTML = h;
   }
 
+  // Restaurantes que se inscreveram na página de vendas (vendas.html). São contatos da RMD, não dados do restaurante.
+  function htmlInscricoes() {
+    if (!st.inscricoes) return '';
+    var ativas = st.inscricoes.filter(function (i) { return !i.cancelada; });
+    var comPromo = ativas.filter(function (i) { return i.promocao; }).length;
+    var nomePlano = function (id) { var pl = PLANOS.filter(function (x) { return x.id === id; })[0]; return pl ? pl.nome : id; };
+    var link = location.href.replace(/rmd\.html.*$/, '') + 'vendas.html';
+    var h = '<div class="caixa"><div class="barra-acoes" style="margin:0"><h3 style="margin:0;flex:1">Promoção de lançamento · inscrições</h3>' +
+      '<button class="btn btn-linha btn-peq" type="button" data-acao="recarregar">Atualizar</button></div>' +
+      '<p style="font-size:13px;color:var(--texto-2)">Os ' + PROMO.vagas + ' primeiros levam o plano Completo pelo preço do Essencial (' + N.reais(PROMO.preco) + '/mês), e nos ' + PROMO.mesesMetade +
+      ' primeiros meses ' + N.reais(PROMO.precoInicio) + '/mês. O servidor conta as vagas sozinho. Inscrição falsa? Cancele e a vaga volta.</p>' +
+      '<div class="cartoes-resumo"><div class="cartao-num"><span>Vagas usadas</span><strong>' + comPromo + ' de ' + PROMO.vagas + '</strong></div>' +
+      '<div class="cartao-num"><span>Inscritos</span><strong>' + ativas.length + '</strong></div></div>' +
+      '<p style="font-size:13px;margin:6px 0 10px;overflow-wrap:anywhere">Página de vendas: <a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a></p>';
+    h += st.inscricoes.length ? st.inscricoes.map(function (i) {
+      var w = String(i.whatsapp || '');
+      return '<div class="resumo-bloco" style="margin-top:8px;overflow-wrap:anywhere;' + (i.cancelada ? 'opacity:.55' : '') + '"><b>#' + i.numero + ' · ' + esc(i.restaurante) + '</b>' +
+        (i.promocao ? ' <span class="status st-PRONTO">PROMOÇÃO</span>' : '') + (i.cancelada ? ' <span class="status st-CANCELADO">cancelada</span>' : '') +
+        '<br><small style="color:var(--texto-2)">' + esc(i.responsavel) + (i.cidade ? ' · ' + esc(i.cidade) : '') + ' · plano ' + esc(nomePlano(i.plano)) + ' · ' + esc(N.dataHora(i.criado_em)) + '</small>' +
+        '<div class="barra-acoes" style="margin:6px 0 0"><a class="btn btn-ouro btn-peq" href="' + esc(N.linkWhatsApp('55' + w, 'Olá, ' + i.responsavel + '! Aqui é da RMD Soluções Tecnológicas, sobre o delivery do ' + i.restaurante + '.')) + '" target="_blank" rel="noopener">WhatsApp</a>' +
+        '<button class="btn btn-linha btn-peq" type="button" data-acao="cancelar-inscricao" data-id="' + i.id + '" data-valor="' + (i.cancelada ? '0' : '1') + '" data-nome="' + esc(i.restaurante) + '">' + (i.cancelada ? 'Reativar' : 'Cancelar') + '</button></div></div>';
+    }).join('') : '<p style="margin:0">Ninguém se inscreveu ainda.</p>';
+    return h + '</div>';
+  }
+
   function planoAtual(rec) {
     var r = PLANOS.filter(function (pl) { return Object.keys(pl.recursos).every(function (k) { return (rec[k] !== false) === pl.recursos[k]; }); })[0];
     return r ? r.id : null;
@@ -156,7 +172,7 @@
         '<ul style="padding-left:18px;margin:8px 0;font-size:14px">' + pl.itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>' +
         '<button class="btn btn-linha btn-peq btn-bloco" type="button" data-acao="aplicar-plano" data-plano="' + pl.id + '">Ligar recursos deste plano</button></div>';
     });
-    h += '</div><p style="font-size:13px;margin:12px 0 4px"><b>Implantação (opcional, uma vez):</b> R$ 150,00 — cadastro do cardápio, logo, QR Codes e treinamento da equipe.</p>' +
+    h += '</div><p style="font-size:13px;margin:12px 0 4px"><b>Implantação (opcional, uma vez):</b> ' + N.reais(window.RmdPlanos.IMPLANTACAO) + ' — cadastro do cardápio, logo, QR Codes e treinamento da equipe.</p>' +
       '<details style="margin-top:8px"><summary>Comparação com o mercado</summary><ul style="padding-left:18px;font-size:13px">' +
       MERCADO.map(function (m) { return '<li><b>' + esc(m[0]) + ':</b> ' + esc(m[1]) + ' (<a href="' + esc(m[2]) + '" target="_blank" rel="noopener">fonte</a>)</li>'; }).join('') +
       '</ul><p style="font-size:12px;color:var(--texto-2)">Preços públicos dos sites/terceiros em outubro de 2026; podem mudar. Concorrentes cobram à parte taxas de pagamento online, fiscal e integrações.</p></details></div>';
@@ -184,6 +200,10 @@
       var nova = prompt('Nova senha para ' + el.dataset.nome + ' (mínimo 6 caracteres):');
       if (nova === null) return;
       try { await api.trocarSenha(el.dataset.id, nova); toast('Senha trocada.'); } catch (e) { alert(e.message); }
+    } else if (a === 'cancelar-inscricao') {
+      var cancelar = el.dataset.valor === '1';
+      if (cancelar && !confirm('Cancelar a inscrição de ' + el.dataset.nome + '? Se ela tinha a promoção, a vaga volta para o próximo restaurante.')) return;
+      try { await api.rmdInscricaoCancelar(Number(el.dataset.id), cancelar); toast(cancelar ? 'Inscrição cancelada.' : 'Inscrição reativada.'); carregar(); } catch (e) { alert(e.message); }
     } else if (a === 'resolver') {
       try { await api.rmdErroResolvido(Number(el.dataset.id), el.dataset.valor === '1'); carregar(); } catch (e) { alert(e.message); }
     }
