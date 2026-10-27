@@ -87,3 +87,9 @@
 .pedido-linha .info small { display: block; }
 .cartao-num { min-width: 0; }
 .cartao-num strong { display: block; overflow-wrap: anywhere; font-size: clamp(18px, 5.5vw, 24px); }
+
+/* Post do dia (Status do WhatsApp): formulário e prévia lado a lado; no celular, um embaixo do outro */
+.post-grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 16px; align-items: start; }
+.post-previa { position: sticky; top: 12px; }
+.post-previa canvas { width: 100%; height: auto; aspect-ratio: 9 / 16; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.45); background: #222; display: block; }
+@media (max-width: 760px) { .post-grade { grid-template-columns: minmax(0, 1fr); } .post-previa { position: static; max-width: 340px; margin: 0 auto; order: -1; } }

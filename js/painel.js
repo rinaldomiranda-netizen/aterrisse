@@ -7,12 +7,12 @@
   function $(s) { return document.querySelector(s); }
 
   var ABAS = {
-    admin: ['inicio', 'pedidos', 'cozinha', 'entregas', 'cardapio', 'horarios', 'loja', 'qrcode', 'relatorios', 'equipe'],
-    atendente: ['inicio', 'pedidos', 'cozinha', 'entregas'],
+    admin: ['inicio', 'pedidos', 'cozinha', 'entregas', 'cardapio', 'post', 'horarios', 'loja', 'qrcode', 'relatorios', 'equipe'],
+    atendente: ['inicio', 'pedidos', 'cozinha', 'entregas', 'post'],
     cozinha: ['cozinha'],
     entregador: ['minhas']
   };
-  var NOMES_ABA = { inicio: 'Início', pedidos: 'Pedidos', cozinha: 'Cozinha', entregas: 'Entregas', minhas: 'Minhas entregas', cardapio: 'Cardápio',
+  var NOMES_ABA = { inicio: 'Início', pedidos: 'Pedidos', cozinha: 'Cozinha', entregas: 'Entregas', minhas: 'Minhas entregas', cardapio: 'Cardápio', post: '📣 Post do dia',
     horarios: 'Horários', loja: 'Loja', qrcode: 'QR Code', relatorios: 'Relatórios', equipe: 'Equipe' };
   var NOMES_PAPEL = { admin: 'Administrador', atendente: 'Atendente', cozinha: 'Cozinha', entregador: 'Entregador' };
 
@@ -141,6 +141,7 @@
 
     if (aba === 'minhas') st.minhas = await api.minhasEntregas();
     if (aba === 'cardapio' || aba === 'horarios' || aba === 'loja' || aba === 'qrcode') st.adm = await api.cardapioCompleto();
+    if (aba === 'post') st.cardPub = await api.cardapio();
     if (aba === 'equipe') { st.entregadores = await api.listarEntregadores(); st.equipe = await api.listarEquipe(); }
   }
 
@@ -179,10 +180,11 @@
     var c = $('#conteudo');
     var topo = st.erro ? '<div class="erro-caixa" role="alert">Falha de comunicação: ' + esc(st.erro) + ' <button class="btn btn-linha btn-peq" type="button" data-acao="aba" data-aba="' + st.aba + '">Tentar de novo</button></div>' : '';
     var f = { inicio: telaInicio, pedidos: telaPedidos, cozinha: telaCozinha, entregas: telaEntregas, minhas: telaMinhas, cardapio: telaCardapio,
-      horarios: telaHorarios, loja: telaLoja, qrcode: telaQr, relatorios: telaRelatorios, equipe: telaEquipe }[st.aba];
+      horarios: telaHorarios, loja: telaLoja, qrcode: telaQr, relatorios: telaRelatorios, equipe: telaEquipe, post: telaPost }[st.aba];
     c.innerHTML = topo + (f ? f() : '');
     if (st.aba === 'qrcode') desenharQr();
     if (st.aba === 'horarios') previaHorarios();
+    if (st.aba === 'post') desenharPost();
   }
 
   // ================================================================ início (dashboard)
@@ -384,7 +386,8 @@
   function telaCardapio() {
     var a = st.adm;
     var h = '<h2>Cardápio</h2><div class="barra-acoes"><button class="btn btn-ouro btn-peq" type="button" data-acao="novo-produto">+ Novo produto</button>' +
-      '<button class="btn btn-linha btn-peq" type="button" data-acao="nova-categoria">+ Nova categoria</button></div>';
+      '<button class="btn btn-linha btn-peq" type="button" data-acao="nova-categoria">+ Nova categoria</button>' +
+      (abasLiberadas().indexOf('post') >= 0 ? '<button class="btn btn-linha btn-peq" type="button" data-acao="aba" data-aba="post">📣 Post do dia para o Status</button>' : '') + '</div>';
     h += '<div class="aviso-caixa">Itens com a etiqueta <b>Exemplo</b> são fictícios (preço a confirmar). Edite ou apague antes de divulgar o cardápio. Fotos: cole o endereço de uma imagem própria/autorizada no produto; sem foto, aparece o ícone.</div>';
     a.categorias.slice().sort(function (x, y) { return x.ordem - y.ordem; }).forEach(function (c) {
       var prods = a.produtos.filter(function (p) { return p.categoria_id === c.id; }).sort(function (x, y) { return x.ordem - y.ordem; });
@@ -697,6 +700,62 @@
     window.print();
   }
 
+  // ================================================================ post do dia (Status do WhatsApp)
+
+  var PD = window.AterrissePostDia;
+  var CHAVE_POST = 'aterrisse_post_dia';
+  function opcoesPostSalvas() { try { return JSON.parse(localStorage.getItem(CHAVE_POST) || '{}') || {}; } catch (e) { return {}; } }
+
+  function telaPost() {
+    var c = st.cardPub, l = c.loja, s = opcoesPostSalvas();
+    var dest = N.destaqueAtual(c.destaques, new Date());
+    var catPadrao = (dest && c.categorias.filter(function (x) { return (dest.categorias || []).indexOf(x.slug) >= 0; })[0]) || c.categorias[0];
+    var catSel = c.categorias.filter(function (x) { return x.id === s.categoria; })[0] || catPadrao;
+    var link = l.url_publica || location.href.replace(/painel\.html.*$/, '').replace(/#.*$/, '');
+    var op = function (v, rot, atual) { return '<option value="' + esc(v) + '"' + (v === atual ? ' selected' : '') + '>' + esc(rot) + '</option>'; };
+    return '<h2>📣 Post do dia para o Status</h2>' +
+      '<p style="color:var(--texto-2);font-size:14px;margin-top:0">A arte sai do próprio cardápio: só entram as opções e produtos <b>disponíveis</b>. Marcou algo como esgotado no Cardápio? Ele some do post. Depois toque em <b>Compartilhar</b> → WhatsApp → <b>Meu status</b>.</p>' +
+      '<div class="post-grade"><form id="form-post" class="caixa" onsubmit="return false">' +
+      '<div class="campo"><label for="pd-cat">O que divulgar</label><select id="pd-cat">' + c.categorias.map(function (x) { return op(x.id, (x.icone ? x.icone + ' ' : '') + x.nome, catSel && catSel.id); }).join('') + '</select></div>' +
+      '<div class="campo"><label for="pd-titulo">Título</label><input id="pd-titulo" maxlength="40" value="' + esc(s.titulo || 'Cardápio do Dia') + '"></div>' +
+      '<div class="campo"><label for="pd-dia">Dia</label><input id="pd-dia" maxlength="24" value="' + esc(PD.diaDaSemana(new Date())) + '"></div>' +
+      '<div class="campo"><label for="pd-chamada">Frase de propaganda</label><input id="pd-chamada" maxlength="60" value="' + esc(s.chamada || 'Peça pelo nosso delivery, sem fila e sem ligação!') + '"></div>' +
+      '<div class="campo"><label for="pd-whats">WhatsApp do pedido</label><input id="pd-whats" maxlength="20" inputmode="tel" value="' + esc(PD.telefoneVisivel(s.whatsapp || l.whatsapp || '')) + '"></div>' +
+      '<div class="campo"><label for="pd-link">Endereço do delivery</label><input id="pd-link" value="' + esc(s.link || link) + '"></div>' +
+      '<div class="campo"><label for="pd-tema">Visual</label><select id="pd-tema">' + Object.keys(PD.TEMAS).map(function (k) { return op(k, PD.TEMAS[k].nome, s.tema || 'madeira'); }).join('') + '</select></div>' +
+      '<div id="pd-aviso"></div>' +
+      '<div class="barra-acoes"><button class="btn btn-ouro" type="button" data-acao="post-compartilhar">📲 Compartilhar (Status)</button>' +
+      '<button class="btn btn-linha" type="button" data-acao="post-baixar">⬇ Baixar imagem</button>' +
+      '<button class="btn btn-linha" type="button" data-acao="post-texto">📋 Copiar texto</button></div>' +
+      '<p style="color:var(--texto-2);font-size:13px;margin:6px 0 0">No computador, use <b>Baixar imagem</b> e poste pelo celular. O texto copiado serve de legenda ou para mandar em grupos.</p>' +
+      '</form><div class="post-previa"><canvas id="pd-canvas" width="1080" height="1920" aria-label="Prévia do post"></canvas></div></div>';
+  }
+
+  function lerPost() {
+    var v = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; };
+    var o = { categoria: v('pd-cat'), titulo: v('pd-titulo'), dia: v('pd-dia').toUpperCase(), chamada: v('pd-chamada'), whatsapp: v('pd-whats'), link: v('pd-link'), tema: v('pd-tema') };
+    try { localStorage.setItem(CHAVE_POST, JSON.stringify({ categoria: o.categoria, titulo: o.titulo, chamada: o.chamada, whatsapp: o.whatsapp, link: o.link, tema: o.tema })); } catch (e) { /* sem memória local: segue */ }
+    var post = PD.montar(st.cardPub, o.categoria);
+    o.loja = st.cardPub.loja.nome; o.logo = st.cardPub.loja.logo_url;
+    return { post: post, op: o };
+  }
+
+  var vezPost = 0;
+  async function desenharPost() {
+    var cv = $('#pd-canvas'); if (!cv) return;
+    var d = lerPost(), minha = ++vezPost;
+    var avisos = [];
+    if (d.post.vazio) avisos.push('Nada disponível nesta categoria. Confira no Cardápio se os produtos estão marcados como disponíveis.');
+    if (N.enderecoLocal(d.op.link)) avisos.push('O endereço do delivery é deste computador/rede: o cliente não vai conseguir abrir. Use o endereço público (https).');
+    $('#pd-aviso').innerHTML = avisos.map(function (a) { return '<div class="aviso-caixa">' + esc(a) + '</div>'; }).join('');
+    var tmp = document.createElement('canvas');
+    await PD.desenhar(tmp, d.post, d.op);
+    if (minha !== vezPost || !$('#pd-canvas')) return; // já pediram outro desenho
+    var c2 = $('#pd-canvas').getContext('2d'); c2.clearRect(0, 0, 1080, 1920); c2.drawImage(tmp, 0, 0);
+  }
+
+  function nomeArquivoPost() { return 'cardapio-do-dia-' + N.diaNoFuso(new Date()) + '.png'; }
+
   // ================================================================ relatórios (admin)
 
   function telaRelatorios() {
@@ -806,6 +865,17 @@
     }
     else if (a === 'gerar-qr') desenharQr();
     else if (a === 'imprimir-qr') imprimirQr();
+    else if (a === 'post-compartilhar' || a === 'post-baixar') {
+      await desenharPost();
+      var dp = lerPost();
+      if (a === 'post-baixar') { PD.baixar(await PD.arquivo($('#pd-canvas'), nomeArquivoPost())); toast('Imagem baixada.'); return; }
+      var r = await PD.compartilhar($('#pd-canvas'), PD.textoWhatsApp(dp.post, dp.op), nomeArquivoPost());
+      if (r === 'baixado') toast('Este aparelho não abre o compartilhar: a imagem foi baixada.');
+    }
+    else if (a === 'post-texto') {
+      var dt = lerPost(), txt = PD.textoWhatsApp(dt.post, dt.op);
+      try { await navigator.clipboard.writeText(txt); toast('Texto copiado.'); } catch (e) { prompt('Copie o texto:', txt); }
+    }
     else if (a === 'salvar-url') {
       var u = $('#qr-url').value.trim();
       if (N.enderecoLocal(u)) { alert('Use um endereço público (https), não um endereço deste computador ou da rede local.'); return; }
@@ -846,6 +916,7 @@
       if (u) mostrarLogo(u);
     } else if (el.closest && el.closest('#form-horarios')) previaHorarios();
     else if (el.id === 'qr-mesa' || el.id === 'qr-url') desenharQr();
+    else if (el.closest && el.closest('#form-post')) desenharPost();
   });
 
   document.addEventListener('input', function (ev) {
@@ -854,6 +925,8 @@
       var pos = ev.target.selectionStart;
       render();
       var b = $('#busca-pedido'); if (b) { b.focus(); b.setSelectionRange(pos, pos); }
+    } else if (ev.target.closest && ev.target.closest('#form-post')) {
+      clearTimeout(st.timerPost); st.timerPost = setTimeout(desenharPost, 350);
     }
   });
 
