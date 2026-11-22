@@ -1,8 +1,8 @@
 /* Painel interno do Mini Delivery Aterrisse */
-.painel-nav { position: sticky; top: 64px; z-index: 15; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 8px 16px; background: #171411; border-bottom: 1px solid #2f2820; }
+.painel-nav { position: sticky; top: 64px; z-index: 15; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 8px 16px; background: #0e1f2b; border-bottom: 1px solid #1a364b; }
 .painel-nav::-webkit-scrollbar { display: none; }
-.painel-nav button { flex: none; min-height: 42px; padding: 8px 14px; border-radius: 999px; border: 1px solid #4c4031; background: #1a1612; font-weight: 700; font-size: 14px; white-space: nowrap; }
-.painel-nav button[aria-current="page"] { background: var(--ouro); color: #17110a; border-color: var(--ouro); }
+.painel-nav button { flex: none; min-height: 42px; padding: 8px 14px; border-radius: 999px; border: 1px solid #2a4963; background: #10222f; font-weight: 700; font-size: 14px; white-space: nowrap; }
+.painel-nav button[aria-current="page"] { background: var(--ouro); color: #0d1e29; border-color: var(--ouro); }
 .painel-nav .badge-novo { display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 4px; padding: 0 5px; border-radius: 10px; background: var(--erro); color: #fff; font-size: 12px; }
 .painel-conteudo { padding-top: 18px; padding-bottom: 60px; }
 /* Celular: abas do painel em grade, todas visíveis (sem rolar para o lado). */
@@ -38,7 +38,7 @@
 .st-ENTREGUE, .st-CONCLUIDO { background: #22301f; color: #c9e6c0; }
 .st-CANCELADO { background: #333; color: #bbb; text-decoration: line-through; }
 .colunas { display: grid; grid-template-columns: 1fr; gap: 14px; }
-.ticket { background: #fffaf0; color: #1b1206; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.ticket { background: #fffaf0; color: #0b1620; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
 .ticket h4 { margin: 0 0 6px; font-size: 20px; }
 .ticket ul { margin: 6px 0; padding-left: 18px; font-size: 17px; }
 .ticket .obs { background: #ffe9b3; border-radius: 6px; padding: 4px 8px; font-weight: 700; margin: 4px 0; }
@@ -50,9 +50,9 @@
 .prod-adm { display: grid; grid-template-columns: 42px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--linha); }
 .prod-adm .ic { font-size: 28px; text-align: center; }
 .prod-adm .acoes-prod { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
-.grupo-editor { border: 1px dashed #6a5638; border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+.grupo-editor { border: 1px dashed #3b5e7a; border-radius: 12px; padding: 10px; margin-bottom: 10px; }
 .opcao-editor { display: grid; grid-template-columns: 1fr 90px auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
-.opcao-editor input[type=text], .opcao-editor input[type=number] { min-height: 40px; padding: 6px 8px; border-radius: 8px; border: 1px solid #5a4a37; background: #120f0c; width: 100%; }
+.opcao-editor input[type=text], .opcao-editor input[type=number] { min-height: 40px; padding: 6px 8px; border-radius: 8px; border: 1px solid #33546e; background: #0b1a24; width: 100%; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-height: 40px; }
 .chk input { width: 20px; height: 20px; accent-color: var(--ouro); }
 .qr-area { background: #fff; color: #111; border-radius: 16px; padding: 18px; text-align: center; max-width: 360px; margin: 0 auto; }
@@ -108,3 +108,32 @@
 .dia-op:not(.tem) b { text-decoration: line-through; }
 .dia-novo { display: flex; gap: 8px; margin-top: 8px; }
 .dia-novo input { flex: 1; min-width: 0; }
+
+/* Pede Sul — montar pedido (balcão e garçom), mesas e comanda impressa (do CONIS) */
+.montar-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.montar-prod { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 48px; padding: 8px 10px; border-radius: 12px;
+  border: 1px solid var(--linha); background: var(--cartao); color: var(--texto); font: inherit; font-size: 14px; text-align: left; }
+.montar-prod b { color: var(--ouro-2); white-space: nowrap; }
+.montar-prod:hover { border-color: var(--ouro); }
+.mesas-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.mesa-cartao { display: grid; gap: 2px; min-height: 96px; padding: 12px; border-radius: 16px; border: 2px solid var(--linha); background: var(--cartao);
+  color: var(--texto); font: inherit; text-align: left; align-content: start; }
+.mesa-cartao b { font-size: 18px; }
+.mesa-cartao small { color: var(--texto-2); }
+.mesa-cartao.ocupada { border-color: var(--ouro); background: rgba(242, 85, 44, .12); }
+.mesa-cartao.ocupada span { font-size: 20px; font-weight: 800; color: var(--ouro-2); }
+@media print {
+  .comanda { width: 72mm; font-family: Arial, sans-serif; font-size: 12px; color: #000; }
+  .comanda h1 { font-size: 16px; margin: 0 0 4px; }
+  .comanda p { margin: 4px 0; }
+  .comanda hr { border: 0; border-top: 1px dashed #000; }
+}
+/* tela do entregador: botão de trabalho e oferta de entrega */
+.trabalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 2px solid var(--linha); }
+.trabalho.ligado { border-color: var(--ok); }
+.trabalho small { color: var(--texto-2); }
+.oferta-caixa { border: 2px solid var(--ouro); background: rgba(242, 85, 44, .1); }
+/* área do desenvolvedor: cartão de cada loja */
+.dev-loja-cab { display: flex; gap: 12px; align-items: flex-start; }
+.dev-logo { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; font-size: 26px; flex: none; }
+.dev-loja h4 { margin: 14px 0 6px; }

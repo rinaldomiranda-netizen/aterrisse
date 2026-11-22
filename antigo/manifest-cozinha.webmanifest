@@ -1,0 +1,16 @@
+{
+  "name": "Cozinha Aterrisse",
+  "short_name": "Cozinha Aterrisse",
+  "description": "Tela da cozinha do Restaurante Aterrisse: pedidos a preparar, sem valores",
+  "lang": "pt-BR",
+  "id": "./cozinha.html",
+  "start_url": "./cozinha.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141210",
+  "theme_color": "#141210",
+  "icons": [
+    { "src": "assets/marca/icone_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/marca/aterrisse_icone.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

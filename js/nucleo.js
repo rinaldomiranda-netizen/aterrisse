@@ -152,8 +152,18 @@
     return erros;
   }
 
+  // Taxa de entrega por bairro (22/11/2026): igual ao banco (pedesul__taxa_bairro). Bairro fora da lista paga a taxa normal.
+  function chaveBairro(b) {
+    return String(b || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+  function taxaDoBairro(loja, bairro) {
+    var k = chaveBairro(bairro), lista = (loja && loja.taxas_bairro) || [];
+    for (var i = 0; k && i < lista.length; i++) if (chaveBairro(lista[i].bairro) === k) return Number(lista[i].taxa) || 0;
+    return Number((loja && loja.taxa_entrega) || 0);
+  }
+
   // Sacola: [{ chave, produto_id, quantidade, adicionais:[ids], removidos:[], observacao }]
-  function totaisSacola(sacola, cardapio, modalidade) {
+  function totaisSacola(sacola, cardapio, modalidade, bairro) {
     var loja = (cardapio && cardapio.loja) || {};
     var sub = 0, itens = 0, problemas = [];
     (sacola || []).forEach(function (it) {
@@ -163,7 +173,7 @@
       if (p) sub += centavos(precoUnitario(p, it.adicionais)) * Number(it.quantidade || 0);
       itens += Number(it.quantidade || 0);
     });
-    var taxa = modalidade === 'entrega' ? centavos(loja.taxa_entrega) : 0;
+    var taxa = modalidade === 'entrega' ? centavos(taxaDoBairro(loja, bairro)) : 0;
     return { subtotal: sub / 100, taxa_entrega: taxa / 100, total: (sub + taxa) / 100, itens: itens, problemas: problemas };
   }
 
@@ -326,6 +336,13 @@
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t);
   }
 
+  // Mesmo endereço no Waze (do CONIS), já pedindo a rota.
+  function linkWaze(endereco) {
+    if (!endereco) return '';
+    var t = [endereco.rua, endereco.numero].filter(Boolean).join(', ') + (endereco.bairro ? ' - ' + endereco.bairro : '') + ', Aracaju';
+    return 'https://waze.com/ul?q=' + encodeURIComponent(t) + '&navigate=yes';
+  }
+
   // ------------------------------------------------------------ Pix (QR Code estático, padrão BR Code do Banco Central)
   // Gera o "Pix copia e cola" para a chave do restaurante, já com o valor do pedido.
   // Não confirma pagamento: quem confere o recebimento é a equipe ou o entregador.
@@ -391,12 +408,12 @@
     reais: reais, dataHora: dataHora, diaNoFuso: diaNoFuso, minutosNoFuso: minutosNoFuso, paraMinutos: paraMinutos,
     dentroDoIntervalo: dentroDoIntervalo, destaqueAtual: destaqueAtual, conferirHorarios: conferirHorarios,
     acharProduto: acharProduto, opcoesEscolhidas: opcoesEscolhidas, precoUnitario: precoUnitario,
-    validarEscolha: validarEscolha, totaisSacola: totaisSacola, chaveItem: chaveItem,
+    validarEscolha: validarEscolha, totaisSacola: totaisSacola, chaveItem: chaveItem, taxaDoBairro: taxaDoBairro, chaveBairro: chaveBairro,
     soDigitos: soDigitos, normalizarTelefone: normalizarTelefone, validarCheckout: validarCheckout, validarTroco: validarTroco,
     linkWhatsApp: linkWhatsApp, textoResumoPedido: textoResumoPedido,
     transicaoValida: transicaoValida, proximosStatus: proximosStatus,
     resumoPedidos: resumoPedidos, relatorioPedidos: relatorioPedidos, enderecoLocal: enderecoLocal, escaparHtml: escaparHtml,
-    prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa,
+    prazoInfo: prazoInfo, horaCurta: horaCurta, linkMapa: linkMapa, linkWaze: linkWaze,
     pixCopiaECola: pixCopiaECola, chavePixNormalizada: chavePixNormalizada, crc16: crc16,
     DOMINIO_CONTAS: DOMINIO_CONTAS, normalizarUsuario: normalizarUsuario, emailEntrada: emailEntrada, usuarioVisivel: usuarioVisivel
   };

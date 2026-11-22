@@ -1,12 +1,15 @@
-/* Mini Delivery Aterrisse — acesso aos dados.
+/* Pede Sul — acesso aos dados (copiado do Aterrisse e ampliado para várias lojas).
    Dois jeitos, com as mesmas funções:
-   - BackendSupabase: grava de verdade no Supabase (REST, sem biblioteca externa).
-   - BackendDemo: MODO DEMONSTRAÇÃO, guarda tudo só neste navegador (localStorage).
-     Usa as mesmas regras do servidor, mas NÃO é o servidor: nada chega ao restaurante. */
+   - BackendSupabase: o banco com várias lojas (supabase/001_pedesul.sql), com login de verdade por loja.
+     Testado neste computador com o servidor de teste (tests/local); ainda NÃO está na nuvem.
+   - BackendDemo: MODO DEMONSTRAÇÃO, guarda tudo só neste navegador (localStorage), uma gaveta por loja.
+     Usa as mesmas regras do servidor, mas NÃO é o servidor: nada sai deste aparelho.
+   Do CONIS vieram: caixa (abrir, fechar, vender no balcão), mesas e garçom, cadastro de clientes pelo telefone,
+   oferta da entrega ao entregador (aceitar / recusar / passa ao próximo) e ocorrências de entrega. */
 (function (raiz, fabrica) {
-  if (typeof module === 'object' && module.exports) module.exports = fabrica(require('./nucleo.js'), require('./dados-demo.js'));
-  else raiz.AterrisseBackend = fabrica(raiz.AterrisseNucleo, raiz.AterrisseDadosDemo);
-})(typeof self !== 'undefined' ? self : this, function (N, DadosDemo) {
+  if (typeof module === 'object' && module.exports) module.exports = fabrica(require('./nucleo.js'), require('./dados-demo.js'), require('./plataforma.js'));
+  else raiz.AterrisseBackend = fabrica(raiz.AterrisseNucleo, raiz.AterrisseDadosDemo, raiz.PedeSulPlataforma);
+})(typeof self !== 'undefined' ? self : this, function (N, DadosDemo, Plataforma) {
   'use strict';
 
   function Erro(mensagem, codigo) {
@@ -22,15 +25,15 @@
     try { var t = armazem.getItem(chave); return t ? JSON.parse(t) : null; } catch (e) { return null; }
   }
 
-  // ================================================================ Supabase
+  // ================================================================ Supabase (banco com várias lojas)
 
   var CAMPOS_PRODUTO = ['categoria_id', 'nome', 'descricao', 'preco', 'icone', 'imagem_url', 'imagem_ilustrativa', 'disponivel',
     'ativo', 'destaque', 'demonstracao', 'ingredientes_removiveis', 'permite_observacao', 'ordem'];
   var CAMPOS_CATEGORIA = ['slug', 'nome', 'descricao', 'icone', 'ordem', 'ativa'];
   var CAMPOS_LOJA = ['nome', 'logo_url', 'whatsapp', 'aberto', 'aviso', 'horario_funcionamento', 'aceita_entrega', 'aceita_retirada',
     'aceita_local', 'taxa_entrega', 'pedido_minimo', 'mesa_modo', 'previsao_retirada_min', 'previsao_entrega_min', 'previsao_local_min', 'pix_chave', 'pix_nome', 'pix_cidade',
-    'pagamentos', 'url_publica'];
-  var ABERTOS = 'RECEBIDO,ACEITO,EM_PREPARACAO,PRONTO,SAIU_PARA_ENTREGA';
+    'pagamentos', 'url_publica', 'cor', 'mesas_qtd'];
+  var DOMINIO_CONTAS = 'pedesul.invalid';
 
   function escolher(obj, campos) {
     var r = {};
@@ -38,40 +41,47 @@
     return r;
   }
 
-  // cfg.VITRINE: demonstração integrada entre aparelhos, na LOJA DE DEMONSTRAÇÃO do servidor
-  // (tabelas e funções aterrisse_demo_*, sem login). A loja real nunca é usada nesse modo.
+  // Tudo passa por funções do banco (supabase/001_pedesul.sql): o navegador não lê nem grava tabela nenhuma.
+  // Cada chamada leva o código da loja da página; o banco confere que a conta logada é daquela loja.
+  // A conta é por loja: o usuário "joao" do Conis vira joao@conis-burger.pedesul.invalid (a pessoa nunca vê esse e-mail).
   function BackendSupabase(cfg, armazem) {
     this.modo = 'supabase';
-    this.vitrine = !!cfg.VITRINE;
-    this.prefixo = this.vitrine ? 'aterrisse_demo_' : 'aterrisse_';
-    this.url = String(cfg.SUPABASE_URL || '').replace(/\/$/, '');
-    this.chave = cfg.SUPABASE_CHAVE_PUBLICA;
+    this.vitrine = false;
+    this.loja = cfg.LOJA || 'aterrisse';
+    this.url = String(cfg.PEDESUL_URL || cfg.SUPABASE_URL || '').replace(/\/$/, '');
+    this.chave = cfg.PEDESUL_CHAVE || cfg.SUPABASE_CHAVE_PUBLICA;
     this.armazem = armazem || (typeof localStorage !== 'undefined' ? localStorage : null);
+    this.chaveSessao = 'pedesul_conta_' + this.loja;
   }
 
-  BackendSupabase.prototype._sessao = function () {
-    if (this.vitrine) return { email: 'demonstração', user_id: 'demo' };
-    return this.armazem ? ler(this.armazem, 'aterrisse_sessao') : null;
-  };
+  BackendSupabase.prototype._sessao = function () { return this.armazem ? ler(this.armazem, this.chaveSessao) : null; };
 
   BackendSupabase.prototype._token = async function () {
-    if (this.vitrine) return null; // demonstração: sem login, só a chave pública
     var s = this._sessao();
     if (!s) return null;
     if (s.expira_em - Date.now() < 60000) {
-      try {
-        var r = await this._auth('token?grant_type=refresh_token', { refresh_token: s.refresh_token });
-        s = this._salvarSessao(r);
-      } catch (e) { guardar(this.armazem, 'aterrisse_sessao', null); return null; }
+      try { s = this._salvarSessao(await this._auth('token?grant_type=refresh_token', { refresh_token: s.refresh_token })); }
+      catch (e) { guardar(this.armazem, this.chaveSessao, null); return null; }
     }
     return s.access_token;
   };
 
   BackendSupabase.prototype._salvarSessao = function (r) {
+    var email = r.user && r.user.email;
     var s = { access_token: r.access_token, refresh_token: r.refresh_token, expira_em: Date.now() + (r.expires_in || 3600) * 1000,
-      email: r.user && r.user.email, user_id: r.user && r.user.id };
-    guardar(this.armazem, 'aterrisse_sessao', s);
+      email: email, usuario: usuarioDoEmail(email), user_id: r.user && r.user.id };
+    guardar(this.armazem, this.chaveSessao, s);
     return s;
+  };
+
+  function usuarioDoEmail(email) {
+    var e = String(email || ''), i = e.indexOf('@');
+    return i > 0 && /\.pedesul\.invalid$/.test(e) ? e.slice(0, i) : e;
+  }
+  // O que a pessoa digita: usuário (vira o e-mail interno DESTA loja) ou um e-mail (conta da RMD, por exemplo).
+  BackendSupabase.prototype._emailDe = function (usuario) {
+    var t = String(usuario || '').trim();
+    return t.indexOf('@') >= 0 ? t.toLowerCase() : N.normalizarUsuario(t) + '@' + this.loja + '.' + DOMINIO_CONTAS;
   };
 
   BackendSupabase.prototype._auth = async function (caminho, corpo, token) {
@@ -84,192 +94,105 @@
     } catch (e) { throw Erro('Sem conexão com o servidor. Verifique a internet.', 'REDE'); }
     var j = await resp.json().catch(function () { return {}; });
     if (!resp.ok) {
-      var msg = j.error_description || j.msg || j.message || 'Falha na autenticação.';
-      if (/invalid login/i.test(msg)) msg = 'Usuário ou senha incorretos.';
-      if (/email not confirmed/i.test(msg)) msg = 'E-mail ainda não confirmado.';
+      var msg = j.error_description || j.msg || j.message || 'Falha na entrada.';
+      if (/invalid login|invalid_grant|credentials/i.test(msg)) msg = 'Usuário ou senha incorretos.';
       throw Erro(msg, 'AUTH');
     }
     return j;
   };
 
-  BackendSupabase.prototype._req = async function (metodo, caminho, corpo, prefer) {
+  BackendSupabase.prototype._rpc = async function (nome, args) {
     var token = (await this._token()) || this.chave;
-    var cab = { apikey: this.chave, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
-    if (prefer) cab.Prefer = prefer;
     var resp;
     try {
-      if (this.prefixo !== 'aterrisse_') caminho = caminho.replace(/aterrisse_/g, this.prefixo);
-      resp = await fetch(this.url + '/rest/v1/' + caminho, { method: metodo, headers: cab, body: corpo === undefined ? undefined : JSON.stringify(corpo) });
+      resp = await fetch(this.url + '/rest/v1/rpc/' + nome, {
+        method: 'POST', headers: { apikey: this.chave, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(args || {})
+      });
     } catch (e) { throw Erro('Sem conexão com o servidor. Verifique a internet e tente de novo.', 'REDE'); }
     if (resp.status === 204) return null;
     var j = await resp.json().catch(function () { return null; });
     if (!resp.ok) {
       j = j || {};
-      if (resp.status >= 500 && caminho.indexOf('aterrisse_registrar_erro') < 0) {
-        this.registrarErro('servidor', 'Erro ' + resp.status + ' em ' + caminho.split('?')[0], j.message || '').catch(function () {});
-      }
+      if (resp.status === 401 && /JWT|expired/i.test(j.message || '')) guardar(this.armazem, this.chaveSessao, null);
+      if (resp.status >= 500 && nome !== 'pedesul_registrar_erro') this.registrarErro('servidor', 'Erro ' + resp.status + ' em ' + nome, j.message || '').catch(function () {});
       var codigo = j.message || 'ERRO';
-      var msg = j.hint || (/permission denied|row-level/i.test(j.message || '') ? 'Sem permissão para isso.' : j.message) || 'Erro no servidor.';
-      if (codigo === 'SEM_PERMISSAO' && !j.hint) msg = 'Sem permissão para isso.';
-      throw Erro(msg, codigo);
+      var msg = j.hint || (/permission denied|row-level|JWT/i.test(j.message || '') ? 'Sem permissão para isso. Entre de novo.' : j.message) || 'Erro no servidor.';
+      throw Erro(msg, /permission denied/i.test(codigo) ? 'SEM_PERMISSAO' : codigo);
     }
     return j;
   };
-
-  BackendSupabase.prototype._rpc = function (nome, args) { return this._req('POST', 'rpc/' + nome, args || {}); };
+  BackendSupabase.prototype._daLoja = function (nome, args) {
+    var a = args || {};
+    a.p_loja = this.loja;
+    return this._rpc(nome, a);
+  };
 
   // ---- público
-  BackendSupabase.prototype.cardapio = function () { return this._rpc('aterrisse_cardapio'); };
-  BackendSupabase.prototype.criarPedido = function (dados) { return this._rpc('aterrisse_criar_pedido', { dados: dados }); };
-  BackendSupabase.prototype.acompanhar = function (numero, codigo) { return this._rpc('aterrisse_acompanhar', { p_numero: numero, p_codigo: codigo }); };
+  BackendSupabase.prototype.cardapio = function () { return this._daLoja('pedesul_cardapio'); };
+  BackendSupabase.prototype.criarPedido = function (dados) { return this._daLoja('pedesul_criar_pedido', { dados: dados }); };
+  BackendSupabase.prototype.acompanhar = function (numero, codigo) { return this._daLoja('pedesul_acompanhar', { p_numero: Number(numero), p_codigo: String(codigo) }); };
+  BackendSupabase.prototype.lojasDaVitrine = function () { return this._rpc('pedesul_vitrine'); };
+  BackendSupabase.prototype.anuncios = function () { return this._rpc('pedesul_anuncios'); };
+  BackendSupabase.prototype.produtosDaVitrine = function () { return this._rpc('pedesul_vitrine_produtos'); };
+  BackendSupabase.prototype.recomecarVitrine = function () { return Promise.resolve(); };
 
-  // ---- conta
-  // Entrada com usuário + senha (o usuário vira o e-mail interno; contas antigas podem usar o e-mail).
-  BackendSupabase.prototype.entrar = async function (usuarioOuEmail, senha) {
-    var r = await this._auth('token?grant_type=password', { email: N.emailEntrada(usuarioOuEmail), password: senha });
-    return this._salvarSessao(r);
+  // ---- conta (usuário + senha; quem cria os acessos é o dono da loja ou a RMD)
+  BackendSupabase.prototype.entrar = async function (usuario, senha) {
+    return this._salvarSessao(await this._auth('token?grant_type=password', { email: this._emailDe(usuario), password: senha }));
   };
-  BackendSupabase.prototype.criarConta = async function (email, senha) {
-    var r = await this._auth('signup', { email: email, password: senha });
-    if (r.access_token) this._salvarSessao(r);
-    return { precisaConfirmar: !r.access_token };
-  };
-  BackendSupabase.prototype.recomecarVitrine = function () { return this.vitrine ? this._rpc('aterrisse_recomecar') : Promise.resolve(); };
+  BackendSupabase.prototype.criarConta = async function () { throw Erro('O acesso é criado pelo dono da loja (Painel → Equipe).', 'SEM_CADASTRO'); };
   BackendSupabase.prototype.sair = async function () {
-    if (this.vitrine) return;
     var s = this._sessao();
-    guardar(this.armazem, 'aterrisse_sessao', null);
-    if (s) { try { await this._auth('logout', {}, s.access_token); } catch (e) { /* já saiu localmente */ } }
+    guardar(this.armazem, this.chaveSessao, null);
+    if (s) { try { await this._auth('logout', {}, s.access_token); } catch (e) { /* já saiu neste aparelho */ } }
   };
   BackendSupabase.prototype.sessao = function () { return this._sessao(); };
-  BackendSupabase.prototype.papel = function () { return this._rpc('aterrisse_papel'); };
+  // trocarSenhaPendente: a loja já vende de verdade e a pessoa ainda está com a senha provisória (ex.: 1234)
+  BackendSupabase.prototype.papel = async function () {
+    var r = await this._daLoja('pedesul_eu');
+    this.trocarSenhaPendente = !!(r && r.trocar_senha);
+    return r ? r.papel : null;
+  };
+  BackendSupabase.prototype.criarMinhaSenha = function (senha) { return this._funcao('pedesul-contas', { acao: 'minha_senha', loja: this.loja, senha: senha }); };
 
   // ---- pedidos
-  function normalizarPedido(p) {
-    var itens = p.aterrisse_pedido_itens || p.itens || [];
-    var hist = (p.aterrisse_pedido_status_hist || p.historico || []).slice().sort(function (a, b) { return String(a.em).localeCompare(String(b.em)); });
-    var pag = (p.aterrisse_pagamentos || [])[0];
-    var r = {};
-    Object.keys(p).forEach(function (k) { if (k.indexOf('aterrisse_') !== 0) r[k] = p[k]; });
-    r.itens = itens.map(function (i) { i.preco_unitario = Number(i.preco_unitario); i.total = Number(i.total); return i; });
-    r.historico = hist;
-    r.pagamento_status = pag ? pag.status : (p.pagamento_status || 'PENDENTE');
-    r.pago_como = pag && pag.status === 'CONFIRMADO' ? pag.forma : (p.pago_como || null);
-    ['subtotal', 'taxa_entrega', 'total', 'troco_para'].forEach(function (k) { if (r[k] !== null && r[k] !== undefined) r[k] = Number(r[k]); });
-    return r;
-  }
+  BackendSupabase.prototype.listarPedidos = function (dias) { return this._daLoja('pedesul_pedidos', { p_dias: dias || 2 }); };
+  BackendSupabase.prototype.mudarStatus = function (id, para, motivo) { return this._daLoja('pedesul_mudar_status', { p_pedido: id, p_para: para, p_motivo: motivo || null }); };
+  BackendSupabase.prototype.atribuirEntregador = function (id, entregador) { return this._daLoja('pedesul_atribuir_entregador', { p_pedido: id, p_entregador: entregador || null }); };
+  BackendSupabase.prototype.confirmarPagamento = function (id, forma) { return this._daLoja('pedesul_confirmar_pagamento', { p_pedido: id, p_forma: forma || null }); };
+  BackendSupabase.prototype.filaCozinha = function () { return this._daLoja('pedesul_fila_cozinha'); };
+  BackendSupabase.prototype.relatorio = function (inicio, fim) { return this._daLoja('pedesul_relatorio', { p_inicio: inicio, p_fim: fim }); };
+  BackendSupabase.prototype.registrarOcorrencia = function (id, tipo, texto) { return this._daLoja('pedesul_registrar_ocorrencia', { p_pedido: id, p_tipo: tipo, p_texto: texto || null }); };
+  BackendSupabase.prototype.resolverOcorrencia = function (id, indice) { return this._daLoja('pedesul_resolver_ocorrencia', { p_pedido: id, p_indice: indice }); };
+  BackendSupabase.prototype.oferecerEntrega = function (id) { return this._daLoja('pedesul_oferecer_entrega', { p_pedido: id }); };
+  // entregador parceiro da RMD (plano Entrega Total) e dados de entrega da loja (taxa por bairro, endereço de retirada)
+  BackendSupabase.prototype.chamarParceiro = function (id) { return this._daLoja('pedesul_chamar_parceiro', { p_pedido: id }); };
+  BackendSupabase.prototype.cancelarParceiro = function (id) { return this._daLoja('pedesul_cancelar_parceiro', { p_pedido: id }); };
+  BackendSupabase.prototype.dadosEntrega = function () { return this._daLoja('pedesul_dados_entrega'); };
+  BackendSupabase.prototype.salvarEntrega = function (d) { return this._daLoja('pedesul_salvar_entrega', { d: escolher(d, ['taxas_bairro', 'endereco']) }); };
 
-  BackendSupabase.prototype.listarPedidos = async function (dias) {
-    var desde = new Date(Date.now() - (dias || 2) * 86400000).toISOString();
-    var lista = await this._req('GET', 'aterrisse_pedidos?select=*,aterrisse_pedido_itens(*),aterrisse_pagamentos(status,forma,confirmado_em),aterrisse_pedido_status_hist(de,para,motivo,em)' +
-      '&or=(criado_em.gte.' + encodeURIComponent(desde) + ',status.in.(' + ABERTOS + '))&order=criado_em.desc&limit=300');
-    return lista.map(normalizarPedido);
-  };
-  BackendSupabase.prototype.mudarStatus = function (id, para, motivo) { return this._rpc('aterrisse_mudar_status', { p_pedido: id, p_para: para, p_motivo: motivo || null }); };
-  BackendSupabase.prototype.atribuirEntregador = function (id, entregador) { return this._rpc('aterrisse_atribuir_entregador', { p_pedido: id, p_entregador: entregador || null }); };
-  BackendSupabase.prototype.confirmarPagamento = function (id, forma) { return this._rpc('aterrisse_confirmar_pagamento', { p_pedido: id, p_forma: forma || null }); };
-  BackendSupabase.prototype.filaCozinha = function () { return this._rpc('aterrisse_fila_cozinha'); };
-  BackendSupabase.prototype.minhasEntregas = function () { return this._rpc('aterrisse_minhas_entregas'); };
-  BackendSupabase.prototype.relatorio = function (inicio, fim) { return this._rpc('aterrisse_relatorio', { p_inicio: inicio, p_fim: fim }); };
-
-  // ---- administração do cardápio
-  BackendSupabase.prototype.cardapioCompleto = async function () {
-    var r = await Promise.all([
-      this._req('GET', 'aterrisse_loja?id=eq.1&select=*'),
-      this._req('GET', 'aterrisse_destaques?select=*&order=ordem'),
-      this._req('GET', 'aterrisse_categorias?select=*&order=ordem'),
-      this._req('GET', 'aterrisse_produtos?select=*,gr:aterrisse_adicionais_grupos(*,op:aterrisse_adicionais(*))&order=ordem') // apelidos gr/op: na demonstração as tabelas são aterrisse_demo_*
-    ]);
-    var loja = r[0][0] || {};
-    loja.taxa_entrega = Number(loja.taxa_entrega || 0); loja.pedido_minimo = Number(loja.pedido_minimo || 0);
-    return {
-      loja: loja,
-      destaques: r[1].map(function (d) { d.inicio = String(d.inicio).slice(0, 5); d.fim = String(d.fim).slice(0, 5); return d; }),
-      categorias: r[2],
-      produtos: r[3].map(function (p) {
-        p.preco = Number(p.preco);
-        p.grupos = (p.gr || []).sort(function (a, b) { return a.ordem - b.ordem; }).map(function (g) {
-          g.opcoes = (g.op || []).sort(function (a, b) { return a.ordem - b.ordem; })
-            .map(function (o) { o.preco = Number(o.preco); delete o.grupo_id; return o; });
-          delete g.op; delete g.produto_id;
-          return g;
-        });
-        delete p.gr;
-        return p;
-      })
-    };
-  };
-
-  BackendSupabase.prototype.salvarLoja = function (loja) {
-    return this._req('PATCH', 'aterrisse_loja?id=eq.1', escolher(loja, CAMPOS_LOJA), 'return=minimal');
-  };
-  BackendSupabase.prototype.salvarDestaques = async function (lista) {
-    for (var i = 0; i < lista.length; i++) {
-      var d = lista[i];
-      await this._req('PATCH', 'aterrisse_destaques?periodo=eq.' + encodeURIComponent(d.periodo),
-        { titulo: d.titulo, inicio: d.inicio, fim: d.fim, categorias: d.categorias, ativo: d.ativo !== false, ordem: d.ordem, atualizado_em: new Date().toISOString() }, 'return=minimal');
-    }
-  };
-  BackendSupabase.prototype.salvarCategoria = async function (c) {
-    if (c.id && String(c.id).indexOf('novo') !== 0) return this._req('PATCH', 'aterrisse_categorias?id=eq.' + c.id, escolher(c, CAMPOS_CATEGORIA), 'return=minimal');
-    return this._req('POST', 'aterrisse_categorias', escolher(c, CAMPOS_CATEGORIA), 'return=minimal');
-  };
-  BackendSupabase.prototype.apagarCategoria = function (id) { return this._req('DELETE', 'aterrisse_categorias?id=eq.' + id); };
-  BackendSupabase.prototype.alterarProduto = function (id, campos) {
-    return this._req('PATCH', 'aterrisse_produtos?id=eq.' + id, escolher(campos, CAMPOS_PRODUTO), 'return=minimal');
-  };
-  // tem / não tem de uma opção do dia (carne, feijão…): só o campo disponivel, um envio por opção
-  BackendSupabase.prototype.alterarOpcao = function (id, disponivel) {
-    return this._req('PATCH', 'aterrisse_adicionais?id=eq.' + id, { disponivel: !!disponivel }, 'return=minimal');
-  };
-  BackendSupabase.prototype.apagarProduto = function (id) { return this._req('DELETE', 'aterrisse_produtos?id=eq.' + id); };
-
-  // Salva o produto com os grupos de adicionais e as opções (cria, altera e remove o que saiu).
-  BackendSupabase.prototype.salvarProduto = async function (p) {
-    var self = this, novo = !p.id || String(p.id).indexOf('novo') === 0, id = p.id;
-    var linha = escolher(p, CAMPOS_PRODUTO);
-    linha.atualizado_em = new Date().toISOString();
-    if (novo) id = (await this._req('POST', 'aterrisse_produtos?select=id', linha, 'return=representation'))[0].id;
-    else await this._req('PATCH', 'aterrisse_produtos?id=eq.' + id, linha, 'return=minimal');
-
-    var antigos = await this._req('GET', 'aterrisse_adicionais_grupos?produto_id=eq.' + id + '&select=id,op:aterrisse_adicionais(id)');
-    var mantidos = (p.grupos || []).filter(function (g) { return g.id && String(g.id).indexOf('novo') !== 0; }).map(function (g) { return g.id; });
-    var sairam = antigos.filter(function (g) { return mantidos.indexOf(g.id) < 0; }).map(function (g) { return g.id; });
-    if (sairam.length) await this._req('DELETE', 'aterrisse_adicionais_grupos?id=in.(' + sairam.join(',') + ')');
-
-    for (var gi = 0; gi < (p.grupos || []).length; gi++) {
-      var g = p.grupos[gi], gid = g.id;
-      var gl = { produto_id: id, nome: g.nome, minimo: Number(g.minimo), maximo: Number(g.maximo), ordem: gi + 1 };
-      if (!gid || String(gid).indexOf('novo') === 0) gid = (await self._req('POST', 'aterrisse_adicionais_grupos?select=id', gl, 'return=representation'))[0].id;
-      else await self._req('PATCH', 'aterrisse_adicionais_grupos?id=eq.' + gid, gl, 'return=minimal');
-      var ant = (antigos.filter(function (a) { return a.id === gid; })[0] || { op: [] }).op.map(function (o) { return o.id; });
-      var ficam = (g.opcoes || []).filter(function (o) { return o.id && String(o.id).indexOf('novo') !== 0; }).map(function (o) { return o.id; });
-      var tirar = ant.filter(function (o) { return ficam.indexOf(o) < 0; });
-      if (tirar.length) await self._req('DELETE', 'aterrisse_adicionais?id=in.(' + tirar.join(',') + ')');
-      for (var oi = 0; oi < (g.opcoes || []).length; oi++) {
-        var o = g.opcoes[oi];
-        var ol = { grupo_id: gid, nome: o.nome, preco: Number(o.preco || 0), disponivel: o.disponivel !== false, ordem: oi + 1 };
-        if (!o.id || String(o.id).indexOf('novo') === 0) await self._req('POST', 'aterrisse_adicionais', ol, 'return=minimal');
-        else await self._req('PATCH', 'aterrisse_adicionais?id=eq.' + o.id, ol, 'return=minimal');
-      }
-    }
-    return id;
-  };
+  // ---- cardápio e loja
+  BackendSupabase.prototype.cardapioCompleto = function () { return this._daLoja('pedesul_cardapio_completo'); };
+  BackendSupabase.prototype.salvarLoja = function (loja) { return this._daLoja('pedesul_salvar_loja', { d: escolher(loja, CAMPOS_LOJA) }); };
+  BackendSupabase.prototype.salvarDestaques = function (lista) { return this._daLoja('pedesul_salvar_destaques', { lista: lista }); };
+  BackendSupabase.prototype.salvarCategoria = function (c) { var d = escolher(c, CAMPOS_CATEGORIA); d.id = c.id || null; return this._daLoja('pedesul_salvar_categoria', { c: d }); };
+  BackendSupabase.prototype.apagarCategoria = function (id) { return this._daLoja('pedesul_apagar_categoria', { p_id: id }); };
+  BackendSupabase.prototype.salvarProduto = function (p) { var d = escolher(p, CAMPOS_PRODUTO); d.id = p.id || null; d.grupos = p.grupos || []; return this._daLoja('pedesul_salvar_produto', { p: d }); };
+  BackendSupabase.prototype.alterarProduto = function (id, campos) { return this._daLoja('pedesul_alterar_produto', { p_id: id, campos: campos }); };
+  BackendSupabase.prototype.alterarOpcao = function (id, disponivel) { return this._daLoja('pedesul_alterar_opcao', { p_id: id, p_disponivel: !!disponivel }); };
+  BackendSupabase.prototype.apagarProduto = function (id) { return this._daLoja('pedesul_apagar_produto', { p_id: id }); };
 
   // ---- equipe e entregadores
-  BackendSupabase.prototype.listarEquipe = function () { return this._req('GET', 'aterrisse_equipe?select=*&order=nome'); };
-  BackendSupabase.prototype.adicionarEquipe = function (email, nome, papel) { return this._rpc('aterrisse_adicionar_equipe', { p_email: email, p_nome: nome, p_papel: papel }); };
-  BackendSupabase.prototype.alterarEquipe = function (userId, campos) { return this._req('PATCH', 'aterrisse_equipe?user_id=eq.' + userId, escolher(campos, ['nome', 'papel', 'ativo']), 'return=minimal'); };
-  BackendSupabase.prototype.listarEntregadores = function () { return this._req('GET', 'aterrisse_entregadores?select=*&order=nome'); };
-  BackendSupabase.prototype.salvarEntregador = function (e) {
-    var linha = escolher(e, ['nome', 'telefone', 'ativo']);
-    if (e.id) return this._req('PATCH', 'aterrisse_entregadores?id=eq.' + e.id, linha, 'return=minimal');
-    return this._req('POST', 'aterrisse_entregadores', linha, 'return=minimal');
+  BackendSupabase.prototype.listarEquipe = function () { return this._daLoja('pedesul_equipe_listar'); };
+  BackendSupabase.prototype.adicionarEquipe = async function () { throw Erro('Use "Criar acesso" (usuário e senha).', 'USE_CRIAR_ACESSO'); };
+  BackendSupabase.prototype.alterarEquipe = function (userId, campos) { return this._daLoja('pedesul_equipe_alterar', { p_user: userId, campos: escolher(campos, ['nome', 'papel', 'ativo']) }); };
+  BackendSupabase.prototype.listarEntregadores = async function () {
+    return (await this._daLoja('pedesul_entregadores_listar')).map(function (e) { e.user_id = e.tem_login ? 'login' : null; return e; });
   };
+  BackendSupabase.prototype.salvarEntregador = function (e) { return this._daLoja('pedesul_salvar_entregador', { d: escolher(e, ['id', 'nome', 'telefone', 'ativo']) }); };
 
-  // ---- contas da equipe: criadas no servidor (Edge Function aterrisse-contas), sem e-mail
+  // contas da equipe: criadas no servidor (função pedesul-contas, com a chave de serviço que o navegador nunca vê)
   BackendSupabase.prototype._funcao = async function (nome, corpo) {
-    if (this.vitrine) throw Erro('Na demonstração não se criam acessos de verdade.', 'DEMO');
     var token = await this._token();
     if (!token) throw Erro('Entre de novo.', 'SEM_LOGIN');
     var resp;
@@ -283,65 +206,115 @@
     return j;
   };
   BackendSupabase.prototype.criarAcesso = function (d) {
-    return this._funcao('aterrisse-contas', { acao: 'criar', nome: d.nome, usuario: d.usuario, senha: d.senha, papel: d.papel });
+    return this._funcao('pedesul-contas', { acao: 'criar', loja: d.loja || this.loja, nome: d.nome, usuario: d.usuario, senha: d.senha, papel: d.papel });
   };
-  BackendSupabase.prototype.trocarSenha = function (userId, senha) {
-    return this._funcao('aterrisse-contas', { acao: 'senha', user_id: userId, senha: senha });
+  BackendSupabase.prototype.trocarSenha = function (userId, senha, loja) {
+    return this._funcao('pedesul-contas', { acao: 'senha', loja: loja || this.loja, user_id: userId, senha: senha });
   };
 
-  // ---- erros técnicos (qualquer tela) e área do desenvolvedor RMD (sem vendas nem clientes)
+  // ---- tela do entregador: só as entregas e ofertas da própria conta (o banco ignora qualquer outro entregador)
+  BackendSupabase.prototype.entregadorEu = function () { return this._daLoja('pedesul_entregador_eu'); };
+  BackendSupabase.prototype.entregadoresDaLoja = async function () { return [await this.entregadorEu()]; };
+  BackendSupabase.prototype.definirOnline = function (_eu, online) { return this._daLoja('pedesul_definir_online', { p_online: !!online }); };
+  BackendSupabase.prototype.ofertasPara = function () { return this._daLoja('pedesul_minhas_ofertas'); };
+  BackendSupabase.prototype.responderOferta = function (id, _eu, aceitar) { return this._daLoja('pedesul_responder_oferta', { p_pedido: id, p_aceitar: !!aceitar }); };
+  BackendSupabase.prototype.minhasEntregas = function () { return this._daLoja('pedesul_minhas_entregas'); };
+  BackendSupabase.prototype.entregadorStatus = function (id, _eu, para) { return this._daLoja('pedesul_entregador_status', { p_pedido: id, p_para: para }); };
+  BackendSupabase.prototype.entregadorPagamento = function (id, _eu, forma) { return this._daLoja('pedesul_entregador_pagamento', { p_pedido: id, p_forma: forma }); };
+  BackendSupabase.prototype.entregadorOcorrencia = function (id, _eu, tipo, texto) { return this._daLoja('pedesul_entregador_ocorrencia', { p_pedido: id, p_tipo: tipo, p_texto: texto || null }); };
+
+  // ---- do CONIS: balcão, mesas, caixa e clientes
+  BackendSupabase.prototype.venderBalcao = function (dados) { return this._daLoja('pedesul_vender_balcao', { dados: dados }); };
+  BackendSupabase.prototype.mesas = function () { return this._daLoja('pedesul_mesas'); };
+  BackendSupabase.prototype.lancarMesa = function (mesa, itens, garcom, obs) { return this._daLoja('pedesul_lancar_mesa', { p_mesa: Number(mesa), p_itens: itens, p_garcom: garcom || null, p_observacoes: obs || null }); };
+  BackendSupabase.prototype.fecharMesa = function (mesa, forma) { return this._daLoja('pedesul_fechar_mesa', { p_mesa: Number(mesa), p_forma: forma || 'dinheiro' }); };
+  BackendSupabase.prototype.caixa = function () { return this._daLoja('pedesul_caixa'); };
+  BackendSupabase.prototype.abrirCaixa = function (valor) { return this._daLoja('pedesul_abrir_caixa', { p_valor: Number(valor) }); };
+  BackendSupabase.prototype.movimentoCaixa = function (tipo, valor, motivo) { return this._daLoja('pedesul_movimento_caixa', { p_tipo: tipo, p_valor: Number(valor), p_motivo: motivo }); };
+  BackendSupabase.prototype.fecharCaixa = function (contado) { return this._daLoja('pedesul_fechar_caixa', { p_contado: Number(contado) }); };
+  BackendSupabase.prototype.clientes = function () { return this._daLoja('pedesul_clientes'); };
+
+  // ---- erros técnicos e área do desenvolvedor RMD (sem vendas nem clientes)
   BackendSupabase.prototype.registrarErro = function (pagina, mensagem, detalhe) {
-    return this._rpc('aterrisse_registrar_erro', { p_pagina: pagina, p_mensagem: mensagem, p_detalhe: detalhe || null });
+    return this._rpc('pedesul_registrar_erro', { p_loja: this.loja === 'rmd' ? null : this.loja, p_pagina: pagina, p_mensagem: mensagem, p_detalhe: detalhe || null });
   };
-  BackendSupabase.prototype.souRmd = function () { return this._rpc('aterrisse_e_rmd'); };
-  BackendSupabase.prototype.rmdPainel = function () { return this._rpc('aterrisse_rmd_painel'); };
-  BackendSupabase.prototype.rmdControle = function (c) {
-    return this._rpc('aterrisse_rmd_controle', { p_liberada: c.liberada, p_motivo: c.motivo_suspensao || null, p_modo: c.modo, p_recursos: c.recursos });
-  };
-  BackendSupabase.prototype.rmdDarAcesso = function (email, nome, papel) { return this._rpc('aterrisse_rmd_dar_acesso', { p_email: email, p_nome: nome, p_papel: papel }); };
-  BackendSupabase.prototype.rmdTirarAcesso = function (userId) { return this._rpc('aterrisse_rmd_tirar_acesso', { p_user: userId }); };
-  BackendSupabase.prototype.rmdErros = function (todos) { return this._rpc('aterrisse_rmd_erros', { p_todos: !!todos }); };
-  BackendSupabase.prototype.rmdErroResolvido = function (id, resolvido) { return this._rpc('aterrisse_rmd_erro_resolvido', { p_id: id, p_resolvido: resolvido }); };
-  // inscrições da promoção de lançamento (página de vendas da RMD)
-  BackendSupabase.prototype.rmdInscricoes = function () { return this._rpc('rmd_delivery_inscricoes_listar'); };
-  BackendSupabase.prototype.rmdInscricaoCancelar = function (id, cancelada) { return this._rpc('rmd_delivery_inscricao_cancelar', { p_id: id, p_cancelada: cancelada }); };
+  BackendSupabase.prototype.souRmd = function () { return this._rpc('pedesul_sou_rmd'); };
+  BackendSupabase.prototype.rmdLojas = function () { return this._rpc('pedesul_rmd_lojas'); };
+  BackendSupabase.prototype.rmdSalvarLoja = function (slug, campos) { return this._rpc('pedesul_rmd_salvar_loja', { p_slug: slug, d: campos }); };
+  BackendSupabase.prototype.rmdCriarLoja = function (d) { return this._rpc('pedesul_rmd_criar_loja', { d: d }); };
+  BackendSupabase.prototype.rmdEquipe = function (slug) { return this._rpc('pedesul_rmd_equipe', { p_slug: slug }); };
+  BackendSupabase.prototype.rmdAnuncios = function () { return this._rpc('pedesul_rmd_anuncios'); };
+  BackendSupabase.prototype.rmdSalvarAnuncio = function (d) { return this._rpc('pedesul_rmd_salvar_anuncio', { d: d }); };
+  BackendSupabase.prototype.rmdApagarAnuncio = function (id) { return this._rpc('pedesul_rmd_apagar_anuncio', { p_id: id }); };
+  BackendSupabase.prototype.rmdErros = function (todos) { return this._rpc('pedesul_rmd_erros', { p_todos: !!todos }); };
+  BackendSupabase.prototype.rmdErroResolvido = function (id, resolvido) { return this._rpc('pedesul_rmd_erro_resolvido', { p_id: id, p_resolvido: resolvido }); };
+  BackendSupabase.prototype.rmdParceiros = function () { return this._rpc('pedesul_rmd_parceiros'); };
+  BackendSupabase.prototype.rmdSalvarParceiro = function (d) { return this._rpc('pedesul_rmd_salvar_parceiro', { d: d }); };
+  // tela do entregador parceiro (conta da "loja" rmd-parceiros): chamados de todas as lojas do plano Entrega Total
+  BackendSupabase.prototype.parceiroEu = function () { return this._rpc('pedesul_parceiro_eu'); };
+  BackendSupabase.prototype.parceiroOnline = function (online) { return this._rpc('pedesul_parceiro_online', { p_online: !!online }); };
+  BackendSupabase.prototype.parceiroChamados = function () { return this._rpc('pedesul_parceiro_chamados'); };
+  BackendSupabase.prototype.parceiroAceitar = function (id) { return this._rpc('pedesul_parceiro_aceitar', { p_pedido: id }); };
+  BackendSupabase.prototype.parceiroEntregas = function () { return this._rpc('pedesul_parceiro_entregas'); };
+  BackendSupabase.prototype.parceiroStatus = function (id, para) { return this._rpc('pedesul_parceiro_status', { p_pedido: id, p_para: para }); };
+  BackendSupabase.prototype.parceiroPagamento = function (id, forma) { return this._rpc('pedesul_parceiro_pagamento', { p_pedido: id, p_forma: forma }); };
 
   // ================================================================ Demonstração (só no navegador)
 
-  var CHAVE_DEMO = 'aterrisse_demo_v1';
-  var CHAVE_VITRINE = 'aterrisse_vitrine_v1';
-
+  // Uma gaveta por loja: pedesul_loja_<código> (ou pedesul_vitrine_<código> na demonstração para o cliente).
   // opcoes.vitrine = demonstração para apresentar ao cliente: guarda separada, entra sem senha
   // e já vem com pedidos de exemplo (prazos, entregadores, status variados). Nada vai ao servidor.
   function BackendDemo(armazem, sessaoArmazem, opcoes) {
+    opcoes = opcoes || {};
     this.modo = 'demo';
-    this.vitrine = !!(opcoes && opcoes.vitrine);
-    this.chave = this.vitrine ? CHAVE_VITRINE : CHAVE_DEMO;
+    this.vitrine = !!opcoes.vitrine;
+    this.loja = opcoes.loja || 'aterrisse';
+    this.chave = (this.vitrine ? 'pedesul_vitrine_' : 'pedesul_loja_') + this.loja;
+    this.chaveSessao = 'pedesul_sessao_' + this.loja;
     this.armazem = armazem || (typeof localStorage !== 'undefined' ? localStorage : null);
     this.sessaoArmazem = sessaoArmazem || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
   }
 
+  // Dados da loja na plataforma (liberada, recursos do plano, vitrine). Sem a plataforma (testes), tudo ligado.
+  BackendDemo.prototype._naPlataforma = function () {
+    var l = Plataforma && Plataforma.obter ? Plataforma.obter(this.loja) : null;
+    return l || { slug: this.loja, nome: null, liberada: true, vitrine: true, modo: 'demo', recursos: Plataforma && Plataforma.todosLigados ? Plataforma.todosLigados() : {} };
+  };
+
+  // Função fora do plano da loja: recusa aqui também (não basta esconder o botão).
+  var NOMES_RECURSO = { caixa: 'Caixa', mesas: 'Mesas e garçom', clientes: 'Cadastro de clientes', entregadores: 'Entregadores', oferta: 'Oferta automática ao entregador', cozinha: 'Tela da cozinha', relatorios: 'Relatórios' };
+  BackendDemo.prototype._exigirRecurso = function (nome) {
+    if ((this._naPlataforma().recursos || {})[nome] === false) throw Erro('O plano desta loja não tem: ' + (NOMES_RECURSO[nome] || nome) + '. Fale com a RMD.', 'RECURSO_DESLIGADO');
+  };
+  BackendDemo.prototype._exigirLiberada = function () {
+    if (this._naPlataforma().liberada === false) throw Erro('Esta loja está suspensa. Fale com a RMD.', 'LOJA_SUSPENSA');
+  };
+
   BackendDemo.prototype._estado = function () {
     var e = this.armazem ? ler(this.armazem, this.chave) : null;
     if (!e || !e.produtos) {
-      e = DadosDemo.criar();
+      var pl = this._naPlataforma();
+      e = DadosDemo.criar(this.loja, pl.nome);
       e.pedidos = []; e.entregadores = []; e.proximoNumero = 1; e.senhaHash = null; e.auditoria = [];
-      if (this.vitrine) semearVitrine(e, Date.now());
+      e.caixa = { aberto: false, movimentos: [], fechamentos: [] };
+      if (this.vitrine) semearVitrine(e, Date.now(), this.loja);
       this._gravar(e);
     }
+    if (!e.caixa) e.caixa = { aberto: false, movimentos: [], fechamentos: [] };
+    if (!e.loja.mesas_qtd) e.loja.mesas_qtd = 10;
     return e;
   };
   BackendDemo.prototype._gravar = function (e) { if (this.armazem) guardar(this.armazem, this.chave, e); };
   BackendDemo.prototype._exigirLogin = function () {
     if (this.vitrine) return;
-    if (!(this.sessaoArmazem && ler(this.sessaoArmazem, 'aterrisse_demo_sessao'))) throw Erro('Entre no painel primeiro.', 'SEM_PERMISSAO');
+    if (!(this.sessaoArmazem && ler(this.sessaoArmazem, this.chaveSessao))) throw Erro('Entre no painel primeiro.', 'SEM_PERMISSAO');
   };
   // Recomeça a vitrine com pedidos de exemplo novos (prazos contando a partir de agora).
   BackendDemo.prototype.recomecarVitrine = function () { if (this.armazem) guardar(this.armazem, this.chave, null); return this._estado(); };
 
   // ---- pedidos de exemplo da vitrine
   function itemAmostra(e, nomeProduto, qtd, extras) {
-    var p = e.produtos.filter(function (x) { return x.nome === nomeProduto; })[0];
+    var p = typeof nomeProduto === 'number' ? e.produtos[nomeProduto % e.produtos.length] : e.produtos.filter(function (x) { return x.nome === nomeProduto; })[0];
     var ads = [];
     (p.grupos || []).forEach(function (g) {
       if (g.minimo > 0) ads.push({ grupo: g.nome, nome: g.opcoes[0].nome, preco: g.opcoes[0].preco });
@@ -353,11 +326,11 @@
     return { produto_id: p.id, nome: p.nome, preco_unitario: unit, quantidade: qtd, adicionais: ads, removidos: [], observacao: null, total: unit * qtd };
   }
 
-  function semearVitrine(e, agora) {
+  function semearVitrine(e, agora, loja) {
     var min = function (m) { return new Date(agora + m * 60000).toISOString(); };
     e.entregadores = [
-      { id: 'ent-carlos', nome: 'Carlos Moto', telefone: '79999990001', ativo: true },
-      { id: 'ent-bruno', nome: 'Bruno Silva', telefone: '79999990002', ativo: true }
+      { id: 'ent-carlos', nome: 'Carlos Moto', telefone: '79999990001', ativo: true, online: true },
+      { id: 'ent-bruno', nome: 'Bruno Silva', telefone: '79999990002', ativo: true, online: true }
     ];
     var ORDEM = ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA', 'ENTREGUE'];
     var ORDEM_LOJA = ['RECEBIDO', 'ACEITO', 'EM_PREPARACAO', 'PRONTO', 'CONCLUIDO'];
@@ -381,6 +354,16 @@
       e.pedidos.push(p);
     }
     var end = function (rua, numero, bairro, ref) { return { rua: rua, numero: numero, bairro: bairro, complemento: '', referencia: ref || '' }; };
+    if (loja && loja !== 'aterrisse') {
+      if (!e.produtos.length) return;
+      pedido(41, -150, 40, 'entrega', 'ENTREGUE', 'Marcos Paulo', [itemAmostra(e, 0, 2)], { telefone: '79988880041', endereco: end('Av. Santos Dumont', '500', 'Atalaia'), entregador_id: 'ent-bruno' });
+      pedido(42, -30, 40, 'entrega', 'PRONTO', 'Pedro Lima', [itemAmostra(e, 1, 1)], { telefone: '79988880042', endereco: end('Rua Niceu Dantas', '210', 'Coroa do Meio', 'Portão cinza'), pagamento: 'dinheiro', troco_para: 100 });
+      pedido(43, -18, 40, 'entrega', 'EM_PREPARACAO', 'Ana Souza', [itemAmostra(e, 2, 1), itemAmostra(e, 3, 1)], { telefone: '79988880043', endereco: end('Rua Ananias Azevedo', '77', 'Farolândia'), entregador_id: 'ent-carlos' });
+      pedido(44, -9, 25, 'local', 'EM_PREPARACAO', 'Rita', [itemAmostra(e, 0, 1)], { mesa: '3' });
+      pedido(45, -2, 40, 'entrega', 'RECEBIDO', 'Mariana Alves', [itemAmostra(e, 1, 2)], { telefone: '79988880045', endereco: end('Av. Beira Mar', '3000', 'Jardins', 'Prédio azul, apto 302') });
+      e.proximoNumero = 46;
+      return;
+    }
     pedido(98, -180, 30, 'retirada', 'CONCLUIDO', 'Fernanda Rocha', [itemAmostra(e, 'Quentinha G', 1, ['Tropeiro', 'Arroz branco'])], { telefone: '79988880098' });
     pedido(99, -150, 30, 'entrega', 'ENTREGUE', 'Marcos Paulo', [itemAmostra(e, 'X-Salada', 2)], { telefone: '79988880099', endereco: end('Rua Laranjeiras', '45', 'Centro'), entregador_id: 'ent-bruno', atrasou: true });
     pedido(100, -120, 30, 'retirada', 'CANCELADO', 'Carla Dias', [itemAmostra(e, 'Cachorro-quente', 1)], { telefone: '79988880100' });
@@ -409,6 +392,13 @@
     var ativas = cats.map(function (c) { return c.id; });
     var loja = copia(e.loja);
     loja.pagamentos = loja.pagamentos.filter(function (p) { return p.ativo !== false; });
+    var pl = this._naPlataforma();
+    loja.slug = this.loja; loja.liberada = pl.liberada !== false; loja.recursos = pl.recursos || {}; loja.modo = pl.modo || 'demo';
+    loja.cor = loja.cor || pl.cor || null; loja.na_vitrine = !!pl.vitrine; loja.segmento = pl.segmento || '';
+    // recurso desligado no plano = modalidade desligada para o cliente (o pedido também é recusado)
+    if (loja.recursos.entrega === false) loja.aceita_entrega = false;
+    if (loja.recursos.retirada === false) loja.aceita_retirada = false;
+    if (loja.recursos.local === false) loja.aceita_local = false;
     return {
       loja: loja,
       destaques: copia(e.destaques.filter(function (d) { return d.ativo !== false; })),
@@ -427,6 +417,7 @@
         taxa_entrega: repetido.taxa_entrega, total: repetido.total, criado_em: repetido.criado_em, itens: repetido.itens, prazo_em: repetido.prazo_em, repetido: true };
     }
     var c = await this.cardapio();
+    if (c.loja.liberada === false) throw Erro('Esta loja está temporariamente indisponível.', 'LOJA_SUSPENSA');
     if (!e.loja.aberto) throw Erro('O restaurante não está recebendo pedidos agora.', 'LOJA_FECHADA');
     var erros = N.validarCheckout(dados, c.loja);
     var primeiro = Object.keys(erros)[0];
@@ -448,7 +439,7 @@
     });
     sub = sub / 100;
     if (sub < Number(e.loja.pedido_minimo || 0)) throw Erro('Pedido mínimo de ' + N.reais(e.loja.pedido_minimo) + '.', 'PEDIDO_MINIMO');
-    var taxa = dados.modalidade === 'entrega' ? Number(e.loja.taxa_entrega || 0) : 0;
+    var taxa = dados.modalidade === 'entrega' ? N.taxaDoBairro(e.loja, dados.endereco && dados.endereco.bairro) : 0;
     var total = Math.round((sub + taxa) * 100) / 100;
     var troco = null;
     if (dados.pagamento === 'dinheiro' && dados.troco_para !== null && dados.troco_para !== undefined && dados.troco_para !== '') {
@@ -506,13 +497,13 @@
     if (!e.senhaHash) throw Erro('Crie a senha do modo demonstração primeiro.', 'SEM_SENHA');
     if ((await hashSenha(senha)) !== e.senhaHash) throw Erro('Senha incorreta.', 'AUTH');
     var s = { email: 'demonstração', user_id: 'demo' };
-    guardar(this.sessaoArmazem, 'aterrisse_demo_sessao', s);
+    guardar(this.sessaoArmazem, this.chaveSessao, s);
     return s;
   };
-  BackendDemo.prototype.sair = async function () { guardar(this.sessaoArmazem, 'aterrisse_demo_sessao', null); };
+  BackendDemo.prototype.sair = async function () { guardar(this.sessaoArmazem, this.chaveSessao, null); };
   BackendDemo.prototype.sessao = function () {
     if (this.vitrine) return { email: 'demonstração', user_id: 'demo' };
-    return this.sessaoArmazem ? ler(this.sessaoArmazem, 'aterrisse_demo_sessao') : null;
+    return this.sessaoArmazem ? ler(this.sessaoArmazem, this.chaveSessao) : null;
   };
   BackendDemo.prototype.papel = async function () { return this.sessao() ? 'admin' : null; };
 
@@ -530,6 +521,8 @@
     if (['ENTREGUE', 'CONCLUIDO', 'CANCELADO'].indexOf(para) >= 0) p.finalizado_em = agora;
     p.no_prazo = para === 'CANCELADO' ? null : (['ENTREGUE', 'CONCLUIDO'].indexOf(para) >= 0 && p.prazo_em ? Date.now() <= new Date(p.prazo_em).getTime() : p.no_prazo);
     if (para === 'CANCELADO' && p.pagamento_status === 'PENDENTE') p.pagamento_status = 'CANCELADO';
+    if (para === 'CANCELADO') p.oferta = null;
+    if (para === 'PRONTO' && p.modalidade === 'entrega' && !p.entregador_id && (this._naPlataforma().recursos || {}).oferta !== false) ofertar(e, p);
     this._gravar(e);
     return { id: id, status: para };
   };
@@ -539,6 +532,7 @@
     var p = e.pedidos.filter(function (x) { return x.id === id; })[0];
     if (!p || p.modalidade !== 'entrega' || ['ENTREGUE', 'CANCELADO'].indexOf(p.status) >= 0) throw Erro('Só pedidos de entrega em andamento.', 'PEDIDO_INVALIDO');
     p.entregador_id = entregador || null;
+    if (p.entregador_id) p.oferta = null;
     this._gravar(e);
   };
   BackendDemo.prototype.confirmarPagamento = async function (id, forma) {
@@ -548,6 +542,7 @@
     if (!p || p.pagamento_status !== 'PENDENTE') throw Erro('Não há pagamento pendente neste pedido.', 'PAGAMENTO_INVALIDO');
     p.pagamento_status = 'CONFIRMADO';
     p.pago_como = forma || p.pagamento;
+    p.pago_em = new Date().toISOString();
     this._gravar(e);
   };
   BackendDemo.prototype.filaCozinha = async function () {
@@ -559,17 +554,16 @@
         observacoes: p.observacoes, criado_em: p.criado_em, itens: p.itens, prazo_em: p.prazo_em || null, entregador: ent ? ent.nome : null };
     });
   };
-  // Na vitrine, a tela do entregador mostra as entregas do primeiro entregador (Carlos Moto).
-  BackendDemo.prototype.minhasEntregas = async function () {
-    this._exigirLogin();
-    if (!this.vitrine) return [];
-    var e = this._estado(), ent = (e.entregadores || [])[0];
+  // Modo demonstração: o celular escolhe "quem sou eu" na lista de entregadores (na vitrine, o primeiro: Carlos Moto).
+  BackendDemo.prototype.minhasEntregas = async function (entregadorId) {
+    var e = this._estado();
+    var ent = (e.entregadores || []).filter(function (x) { return x.id === entregadorId; })[0] || (this.vitrine ? (e.entregadores || [])[0] : null);
     if (!ent) return [];
     return copia(e.pedidos.filter(function (p) {
       return p.entregador_id === ent.id && ['ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA'].indexOf(p.status) >= 0;
     })).sort(function (a, b) { return String(a.prazo_em).localeCompare(String(b.prazo_em)); });
   };
-  BackendDemo.prototype.relatorio = async function (inicio, fim) { this._exigirLogin(); return N.relatorioPedidos(this._estado().pedidos, inicio, fim); };
+  BackendDemo.prototype.relatorio = async function (inicio, fim) { this._exigirLogin(); this._exigirRecurso('relatorios'); return N.relatorioPedidos(this._estado().pedidos, inicio, fim); };
 
   BackendDemo.prototype.cardapioCompleto = async function () {
     this._exigirLogin();
@@ -580,7 +574,32 @@
     this._exigirLogin(); var e = this._estado();
     CAMPOS_LOJA.forEach(function (c) { if (loja[c] !== undefined) e.loja[c] = loja[c]; });
     this._auditar(e, 'loja'); this._gravar(e);
+    // nome e cor também valem na vitrine da plataforma
+    if (Plataforma && Plataforma.obter && Plataforma.obter(this.loja)) Plataforma.salvar(this.loja, { nome: e.loja.nome, cor: e.loja.cor || undefined });
   };
+  // taxa por bairro e endereço de retirada (demonstração: guardados neste aparelho)
+  BackendDemo.prototype.dadosEntrega = async function () {
+    var e = this._estado();
+    return { taxas_bairro: copia(e.loja.taxas_bairro || []), endereco: e.loja.endereco || null, parceiros: false, valor_chamada: 1.5, demo: true };
+  };
+  BackendDemo.prototype.salvarEntrega = async function (d) {
+    this._exigirLogin(); var e = this._estado(), vistos = {};
+    if (d.taxas_bairro) {
+      e.loja.taxas_bairro = d.taxas_bairro.map(function (x) {
+        var b = String(x.bairro || '').replace(/\s+/g, ' ').trim(), t = Number(x.taxa);
+        if (b.length < 2 || b.length > 60) throw Erro('Nome do bairro com 2 a 60 letras.', 'TAXAS_INVALIDAS');
+        if (!(t >= 0 && t <= 200)) throw Erro('Taxa inválida no bairro ' + b + ' (de 0 a 200).', 'TAXAS_INVALIDAS');
+        var k = N.chaveBairro(b);
+        if (vistos[k]) throw Erro('O bairro ' + b + ' está repetido.', 'TAXAS_INVALIDAS');
+        vistos[k] = true;
+        return { bairro: b, taxa: Math.round(t * 100) / 100 };
+      });
+    }
+    if (d.endereco !== undefined) e.loja.endereco = String(d.endereco || '').trim().slice(0, 200) || null;
+    this._auditar(e, 'entrega'); this._gravar(e);
+  };
+  BackendDemo.prototype.chamarParceiro = async function () { throw Erro('O entregador parceiro funciona só com o banco (site publicado).', 'DEMO'); };
+  BackendDemo.prototype.cancelarParceiro = BackendDemo.prototype.chamarParceiro;
   BackendDemo.prototype.salvarDestaques = async function (lista) {
     this._exigirLogin(); var e = this._estado();
     e.destaques = copia(lista); this._auditar(e, 'horarios'); this._gravar(e);
@@ -647,11 +666,282 @@
     BackendDemo.prototype[n] = async function () { throw Erro('A área do desenvolvedor só funciona com o banco (MODO supabase).', 'DEMO'); };
   });
 
-  function criar(cfg) {
-    cfg = cfg || {};
-    if (cfg.MODO === 'supabase' && cfg.SUPABASE_URL && cfg.SUPABASE_CHAVE_PUBLICA) return new BackendSupabase(cfg);
-    return new BackendDemo(undefined, undefined, { vitrine: !!cfg.VITRINE });
+  // ================================================================ do CONIS: entregadores online e oferta da entrega
+
+  function abertasDo(e, entId) {
+    return e.pedidos.filter(function (p) { return p.entregador_id === entId && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0; }).length;
+  }
+  // Oferece a entrega ao entregador online e ativo com menos entregas abertas, que ainda não recusou.
+  function ofertar(e, p) {
+    var recusados = (p.oferta && p.oferta.recusados) || [];
+    var livres = (e.entregadores || []).filter(function (x) { return x.ativo !== false && x.online && recusados.indexOf(x.id) < 0; })
+      .sort(function (a, b) { return abertasDo(e, a.id) - abertasDo(e, b.id); });
+    var alvo = livres[0];
+    p.oferta = { entregador_id: alvo ? alvo.id : null, em: new Date().toISOString(), recusados: recusados, sem_ninguem: !alvo };
+    return alvo || null;
   }
 
-  return { criar: criar, BackendSupabase: BackendSupabase, BackendDemo: BackendDemo, Erro: Erro };
+  // Lista curta (nome e se está online) para a tela do entregador escolher "quem sou eu" no modo demonstração.
+  BackendDemo.prototype.entregadoresDaLoja = async function () {
+    return (this._estado().entregadores || []).map(function (x) { return { id: x.id, nome: x.nome, ativo: x.ativo !== false, online: !!x.online }; });
+  };
+  // O entregador só mexe nas entregas que são dele: sair, entregar e marcar o pagamento recebido.
+  BackendDemo.prototype._entregaDo = function (e, pedidoId, entregadorId) {
+    var p = e.pedidos.filter(function (x) { return x.id === pedidoId; })[0];
+    if (!p || !entregadorId || p.entregador_id !== entregadorId) throw Erro('Esta entrega não é sua.', 'SEM_PERMISSAO');
+    return p;
+  };
+  BackendDemo.prototype.entregadorStatus = async function (pedidoId, entregadorId, para) {
+    this._exigirRecurso('entregadores');
+    var e = this._estado(), p = this._entregaDo(e, pedidoId, entregadorId);
+    if (['SAIU_PARA_ENTREGA', 'ENTREGUE'].indexOf(para) < 0 || !N.transicaoValida('entrega', p.status, para)) throw Erro('Não é possível passar de ' + N.STATUS_NOMES[p.status] + ' para ' + N.STATUS_NOMES[para] + '.', 'TRANSICAO_INVALIDA');
+    var agora = new Date().toISOString();
+    p.historico.push({ de: p.status, para: para, em: agora, por: 'entregador' });
+    p.status = para; p.atualizado_em = agora;
+    if (para === 'ENTREGUE') { p.finalizado_em = agora; p.no_prazo = p.prazo_em ? Date.now() <= new Date(p.prazo_em).getTime() : null; }
+    this._gravar(e);
+  };
+  BackendDemo.prototype.entregadorPagamento = async function (pedidoId, entregadorId, forma) {
+    this._exigirRecurso('entregadores');
+    var e = this._estado(), p = this._entregaDo(e, pedidoId, entregadorId);
+    if (p.pagamento_status !== 'PENDENTE') throw Erro('Não há pagamento pendente nesta entrega.', 'PAGAMENTO_INVALIDO');
+    if (p.status !== 'SAIU_PARA_ENTREGA') throw Erro('Confirme o pagamento depois de sair para a entrega.', 'PAGAMENTO_INVALIDO');
+    if (['dinheiro', 'cartao', 'pix'].indexOf(forma) < 0) throw Erro('Forma de pagamento inválida.', 'VALIDACAO');
+    p.pagamento_status = 'CONFIRMADO'; p.pago_como = forma; p.pago_em = new Date().toISOString(); p.pago_por = 'entregador';
+    this._gravar(e);
+  };
+  BackendDemo.prototype.entregadorOcorrencia = async function (pedidoId, entregadorId, tipo, texto) {
+    this._entregaDo(this._estado(), pedidoId, entregadorId);
+    return this.registrarOcorrencia(pedidoId, tipo, texto);
+  };
+  BackendDemo.prototype.definirOnline = async function (entregadorId, online) {
+    this._exigirRecurso('entregadores');
+    var e = this._estado();
+    var ent = (e.entregadores || []).filter(function (x) { return x.id === entregadorId; })[0];
+    if (!ent) throw Erro('Entregador não encontrado.', 'NAO_ENCONTRADO');
+    ent.online = !!online; ent.online_desde = online ? new Date().toISOString() : null;
+    if (!online) e.pedidos.forEach(function (p) { if (p.oferta && p.oferta.entregador_id === entregadorId) ofertar(e, p); });
+    this._gravar(e);
+  };
+  BackendDemo.prototype.oferecerEntrega = async function (pedidoId) {
+    this._exigirLogin();
+    this._exigirRecurso('oferta');
+    var e = this._estado();
+    var p = e.pedidos.filter(function (x) { return x.id === pedidoId; })[0];
+    if (!p || p.modalidade !== 'entrega' || p.entregador_id || ['ENTREGUE', 'CANCELADO', 'SAIU_PARA_ENTREGA'].indexOf(p.status) >= 0) throw Erro('Só entregas em andamento e sem entregador.', 'PEDIDO_INVALIDO');
+    if (p.oferta && p.oferta.sem_ninguem) p.oferta.recusados = []; // ninguém aceitou: começa a roda de novo
+    var alvo = ofertar(e, p);
+    this._gravar(e);
+    return alvo ? alvo.nome : null;
+  };
+  BackendDemo.prototype.ofertasPara = async function (entregadorId) {
+    if ((this._naPlataforma().recursos || {}).entregadores === false) return [];
+    var e = this._estado();
+    return copia(e.pedidos.filter(function (p) { return p.oferta && p.oferta.entregador_id === entregadorId && !p.entregador_id && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0; }));
+  };
+  BackendDemo.prototype.responderOferta = async function (pedidoId, entregadorId, aceitar) {
+    this._exigirRecurso('entregadores');
+    var e = this._estado();
+    var p = e.pedidos.filter(function (x) { return x.id === pedidoId; })[0];
+    if (!p || !p.oferta || p.oferta.entregador_id !== entregadorId || p.entregador_id) throw Erro('Esta oferta não está mais com você.', 'OFERTA_EXPIRADA');
+    if (aceitar) { p.entregador_id = entregadorId; p.oferta = null; }
+    else { p.oferta.recusados = (p.oferta.recusados || []).concat([entregadorId]); ofertar(e, p); }
+    this._gravar(e);
+    return aceitar;
+  };
+
+  // ================================================================ do CONIS: ocorrências de entrega
+
+  var OCORRENCIAS = {
+    ENTREGUE_SEM_PAGAMENTO: 'Entregue e pagamento não confirmado', CLIENTE_RECUSOU_PAGAR: 'Cliente recusou o pagamento',
+    PAGO_E_RECUSOU_RECEBER: 'Pagamento consta recebido, mas cliente recusou receber', CLIENTE_AUSENTE: 'Cliente não estava no endereço',
+    ENDERECO_NAO_ACHADO: 'Endereço não encontrado', OUTRA: 'Outra ocorrência'
+  };
+  BackendDemo.prototype.registrarOcorrencia = async function (pedidoId, tipo, texto) {
+    var e = this._estado();
+    var p = e.pedidos.filter(function (x) { return x.id === pedidoId; })[0];
+    if (!p) throw Erro('Pedido não encontrado.', 'PEDIDO_INEXISTENTE');
+    if (!OCORRENCIAS[tipo]) throw Erro('Escolha o tipo da ocorrência.', 'VALIDACAO');
+    if (tipo === 'OUTRA' && String(texto || '').trim().length < 3) throw Erro('Descreva a ocorrência.', 'VALIDACAO');
+    p.ocorrencias = (p.ocorrencias || []).concat([{ tipo: tipo, nome: OCORRENCIAS[tipo], texto: String(texto || '').trim().slice(0, 300) || null, em: new Date().toISOString(), resolvida: false }]);
+    this._gravar(e);
+  };
+  BackendDemo.prototype.resolverOcorrencia = async function (pedidoId, indice) {
+    this._exigirLogin();
+    var e = this._estado();
+    var p = e.pedidos.filter(function (x) { return x.id === pedidoId; })[0];
+    if (!p || !p.ocorrencias || !p.ocorrencias[indice]) throw Erro('Ocorrência não encontrada.', 'NAO_ENCONTRADO');
+    p.ocorrencias[indice].resolvida = true; p.ocorrencias[indice].resolvida_em = new Date().toISOString();
+    this._gravar(e);
+  };
+
+  // ================================================================ do CONIS: venda no balcão e mesas (garçom)
+
+  // Monta os itens com o preço do cardápio (o mesmo cálculo do pedido do cliente).
+  function linhasDe(c, itens) {
+    if (!itens || !itens.length) throw Erro('Adicione pelo menos um item.', 'SACOLA_VAZIA');
+    var linhas = [], sub = 0;
+    itens.forEach(function (it) {
+      var p = N.acharProduto(c, it.produto_id);
+      var er = N.validarEscolha(p, it);
+      if (er.length) throw Erro(er[0], 'ITEM_INVALIDO');
+      var unit = N.precoUnitario(p, it.adicionais);
+      sub += Math.round(unit * 100) * it.quantidade;
+      linhas.push({ produto_id: p.id, nome: p.nome, preco_unitario: unit, quantidade: it.quantidade,
+        adicionais: N.opcoesEscolhidas(p, it.adicionais).map(function (o) { return { grupo: o.grupo, nome: o.nome, preco: o.preco }; }),
+        removidos: it.removidos || [], observacao: String(it.observacao || '').trim() || null, total: Math.round(unit * 100) * it.quantidade / 100 });
+    });
+    return { linhas: linhas, subtotal: sub / 100 };
+  }
+  // Pedido feito pela equipe (balcão ou garçom): já entra aceito e vai direto para a cozinha.
+  BackendDemo.prototype._pedidoDaEquipe = async function (dados, origem) {
+    var e = this._estado(), c = await this.cardapio();
+    var m = linhasDe(c, dados.itens);
+    var agora = new Date().toISOString();
+    var minutos = dados.modalidade === 'local' ? e.loja.previsao_local_min : e.loja.previsao_retirada_min;
+    var p = {
+      id: novoId(), numero: e.proximoNumero++, acompanhamento: novoId(), nome: String(dados.nome || '').trim() || (dados.mesa ? 'Mesa ' + dados.mesa : 'Balcão'),
+      telefone: N.soDigitos(dados.telefone) || null, modalidade: dados.modalidade, endereco: null, mesa: dados.mesa ? String(dados.mesa) : null,
+      observacoes: String(dados.observacoes || '').trim() || null, pagamento: dados.pagamento || 'dinheiro', troco_para: null,
+      subtotal: m.subtotal, taxa_entrega: 0, total: m.subtotal, status: 'ACEITO', entregador_id: null, pagamento_status: 'PENDENTE',
+      criado_em: agora, atualizado_em: agora, itens: m.linhas, historico: [{ de: null, para: 'RECEBIDO', em: agora }, { de: 'RECEBIDO', para: 'ACEITO', em: agora }],
+      prazo_em: minutos > 0 ? new Date(Date.now() + minutos * 60000).toISOString() : null, finalizado_em: null, no_prazo: null,
+      origem: origem, garcom: dados.garcom || null
+    };
+    if (dados.pago) { p.pagamento_status = 'CONFIRMADO'; p.pago_como = p.pagamento; p.pago_em = agora; }
+    e.pedidos.push(p);
+    this._gravar(e);
+    return copia(p);
+  };
+
+  BackendDemo.prototype.venderBalcao = async function (dados) {
+    this._exigirLogin();
+    this._exigirLiberada(); this._exigirRecurso('caixa');
+    if (!this._estado().caixa.aberto) throw Erro('Abra o caixa antes de vender no balcão.', 'CAIXA_FECHADO');
+    return this._pedidoDaEquipe({ itens: dados.itens, nome: dados.nome, telefone: dados.telefone, modalidade: 'retirada', pagamento: dados.pagamento, pago: dados.pago !== false, observacoes: dados.observacoes }, 'balcao');
+  };
+
+  function contaFechada(p) { return p.conta_fechada || p.status === 'CANCELADO'; }
+  BackendDemo.prototype.mesas = async function () {
+    this._exigirLogin();
+    this._exigirRecurso('mesas');
+    var e = this._estado(), qtd = Number(e.loja.mesas_qtd) || 0, r = [];
+    for (var n = 1; n <= qtd; n++) {
+      var dela = e.pedidos.filter(function (p) { return p.modalidade === 'local' && String(p.mesa) === String(n) && !contaFechada(p); });
+      r.push({ numero: n, ocupada: dela.length > 0, pedidos: copia(dela), total: dela.reduce(function (s, p) { return s + Math.round(p.total * 100); }, 0) / 100,
+        desde: dela.length ? dela.map(function (p) { return p.criado_em; }).sort()[0] : null,
+        pronta_para_fechar: dela.length > 0 && dela.every(function (p) { return ['PRONTO', 'CONCLUIDO'].indexOf(p.status) >= 0; }) });
+    }
+    return r;
+  };
+  BackendDemo.prototype.lancarMesa = async function (mesa, itens, garcom, observacoes) {
+    this._exigirLogin();
+    this._exigirLiberada(); this._exigirRecurso('mesas');
+    var qtd = Number(this._estado().loja.mesas_qtd) || 0;
+    if (!(Number(mesa) >= 1 && Number(mesa) <= qtd)) throw Erro('Mesa inválida.', 'MESA_INVALIDA');
+    return this._pedidoDaEquipe({ itens: itens, mesa: String(mesa), modalidade: 'local', pagamento: 'dinheiro', pago: false, garcom: garcom, observacoes: observacoes }, 'garcom');
+  };
+  // Fecha a conta: só quando tudo da mesa já saiu da cozinha. Marca recebido e libera a mesa.
+  BackendDemo.prototype.fecharMesa = async function (mesa, forma) {
+    this._exigirLogin();
+    this._exigirRecurso('mesas');
+    var e = this._estado(), agora = new Date().toISOString();
+    var dela = e.pedidos.filter(function (p) { return p.modalidade === 'local' && String(p.mesa) === String(mesa) && !contaFechada(p); });
+    if (!dela.length) throw Erro('Esta mesa não tem conta aberta.', 'MESA_LIVRE');
+    if (dela.some(function (p) { return ['PRONTO', 'CONCLUIDO'].indexOf(p.status) < 0; })) throw Erro('Ainda há pedido desta mesa na cozinha. Espere ficar pronto.', 'MESA_EM_PREPARO');
+    var total = 0;
+    dela.forEach(function (p) {
+      if (p.status === 'PRONTO') { p.historico.push({ de: 'PRONTO', para: 'CONCLUIDO', em: agora }); p.status = 'CONCLUIDO'; p.finalizado_em = agora;
+        p.no_prazo = p.prazo_em ? Date.now() <= new Date(p.prazo_em).getTime() : null; }
+      if (p.pagamento_status === 'PENDENTE') { p.pagamento_status = 'CONFIRMADO'; p.pago_como = forma || 'dinheiro'; p.pago_em = agora; }
+      p.conta_fechada = true; total += Math.round(p.total * 100);
+    });
+    this._gravar(e);
+    return { mesa: String(mesa), total: total / 100, pedidos: dela.length };
+  };
+
+  // ================================================================ do CONIS: caixa (abrir, sangria/suprimento, fechar)
+
+  function resumoCaixa(e) {
+    var cx = e.caixa;
+    if (!cx.aberto) return { aberto: false, fechamentos: copia((cx.fechamentos || []).slice(-10).reverse()) };
+    var desde = cx.aberto_em;
+    var pagos = e.pedidos.filter(function (p) { return p.pagamento_status === 'CONFIRMADO' && p.pago_em && p.pago_em >= desde; });
+    var porForma = {};
+    pagos.forEach(function (p) { var f = p.pago_como || p.pagamento; porForma[f] = (porForma[f] || 0) + Math.round(p.total * 100); });
+    Object.keys(porForma).forEach(function (k) { porForma[k] = porForma[k] / 100; });
+    var mov = cx.movimentos || [];
+    var soma = function (tipo) { return mov.filter(function (m) { return m.tipo === tipo; }).reduce(function (s, m) { return s + Math.round(m.valor * 100); }, 0) / 100; };
+    var dinheiro = Math.round((Number(cx.valor_inicial || 0) + (porForma.dinheiro || 0) + soma('suprimento') - soma('sangria')) * 100) / 100;
+    var aReceber = e.pedidos.filter(function (p) { return p.pagamento_status === 'PENDENTE' && p.criado_em >= desde && p.status !== 'CANCELADO'; });
+    return { aberto: true, aberto_em: desde, aberto_por: cx.aberto_por || null, valor_inicial: Number(cx.valor_inicial || 0), por_forma: porForma,
+      vendas: pagos.reduce(function (s, p) { return s + Math.round(p.total * 100); }, 0) / 100, pedidos_pagos: pagos.length,
+      suprimentos: soma('suprimento'), sangrias: soma('sangria'), dinheiro_esperado: dinheiro, movimentos: copia(mov),
+      a_receber: aReceber.reduce(function (s, p) { return s + Math.round(p.total * 100); }, 0) / 100, pedidos_a_receber: aReceber.length,
+      fechamentos: copia((cx.fechamentos || []).slice(-10).reverse()) };
+  }
+  BackendDemo.prototype.caixa = async function () { this._exigirLogin(); this._exigirRecurso('caixa'); return resumoCaixa(this._estado()); };
+  BackendDemo.prototype.abrirCaixa = async function (valorInicial, quem) {
+    this._exigirLogin();
+    this._exigirRecurso('caixa');
+    var e = this._estado();
+    if (e.caixa.aberto) throw Erro('O caixa já está aberto.', 'CAIXA_ABERTO');
+    var v = Number(valorInicial);
+    if (!(v >= 0 && v <= 100000)) throw Erro('Valor inicial inválido.', 'VALIDACAO');
+    e.caixa.aberto = true; e.caixa.aberto_em = new Date().toISOString(); e.caixa.valor_inicial = Math.round(v * 100) / 100; e.caixa.aberto_por = quem || null; e.caixa.movimentos = [];
+    this._auditar(e, 'caixa aberto'); this._gravar(e);
+    return resumoCaixa(e);
+  };
+  BackendDemo.prototype.movimentoCaixa = async function (tipo, valor, motivo) {
+    this._exigirLogin();
+    this._exigirRecurso('caixa');
+    var e = this._estado();
+    if (!e.caixa.aberto) throw Erro('Abra o caixa primeiro.', 'CAIXA_FECHADO');
+    if (['sangria', 'suprimento'].indexOf(tipo) < 0) throw Erro('Tipo inválido.', 'VALIDACAO');
+    var v = Number(valor);
+    if (!(v > 0 && v <= 100000)) throw Erro('Valor inválido.', 'VALIDACAO');
+    if (String(motivo || '').trim().length < 3) throw Erro('Informe o motivo.', 'VALIDACAO');
+    e.caixa.movimentos.push({ tipo: tipo, valor: Math.round(v * 100) / 100, motivo: String(motivo).trim().slice(0, 120), em: new Date().toISOString() });
+    this._gravar(e);
+    return resumoCaixa(e);
+  };
+  BackendDemo.prototype.fecharCaixa = async function (contado) {
+    this._exigirLogin();
+    this._exigirRecurso('caixa');
+    var e = this._estado();
+    if (!e.caixa.aberto) throw Erro('O caixa já está fechado.', 'CAIXA_FECHADO');
+    var r = resumoCaixa(e), c = Number(contado);
+    if (!(c >= 0)) throw Erro('Informe quanto tem de dinheiro na gaveta.', 'VALIDACAO');
+    var f = { aberto_em: r.aberto_em, fechado_em: new Date().toISOString(), valor_inicial: r.valor_inicial, vendas: r.vendas, por_forma: r.por_forma,
+      suprimentos: r.suprimentos, sangrias: r.sangrias, dinheiro_esperado: r.dinheiro_esperado, dinheiro_contado: Math.round(c * 100) / 100,
+      diferenca: Math.round((c - r.dinheiro_esperado) * 100) / 100 };
+    e.caixa.fechamentos = (e.caixa.fechamentos || []).concat([f]).slice(-60);
+    e.caixa.aberto = false; e.caixa.movimentos = [];
+    this._auditar(e, 'caixa fechado'); this._gravar(e);
+    return f;
+  };
+
+  // ================================================================ do CONIS: clientes (só a equipe vê; o cliente não consegue buscar ninguém)
+
+  BackendDemo.prototype.clientes = async function () {
+    this._exigirLogin();
+    this._exigirRecurso('clientes');
+    var porTel = {};
+    this._estado().pedidos.slice().sort(function (a, b) { return String(a.criado_em).localeCompare(String(b.criado_em)); }).forEach(function (p) {
+      if (!p.telefone) return;
+      var c = porTel[p.telefone] = porTel[p.telefone] || { telefone: p.telefone, pedidos: 0, total: 0, primeiro_em: p.criado_em };
+      c.nome = p.nome; c.ultimo_em = p.criado_em; if (p.endereco) c.endereco = p.endereco;
+      if (p.status !== 'CANCELADO') { c.pedidos++; c.total = Math.round((c.total + p.total) * 100) / 100; }
+    });
+    return Object.keys(porTel).map(function (k) { return porTel[k]; }).sort(function (a, b) { return String(b.ultimo_em).localeCompare(String(a.ultimo_em)); });
+  };
+
+  function criar(cfg) {
+    cfg = cfg || {};
+    // ?demo=1 (demonstração para mostrar ao cliente) continua só no aparelho, sem login, mesmo com o banco ligado
+    if (cfg.MODO === 'supabase' && !cfg.VITRINE && (cfg.PEDESUL_URL || cfg.SUPABASE_URL)) return new BackendSupabase(cfg);
+    return new BackendDemo(undefined, undefined, { vitrine: !!cfg.VITRINE, loja: cfg.LOJA });
+  }
+
+  return { criar: criar, BackendSupabase: BackendSupabase, BackendDemo: BackendDemo, Erro: Erro, OCORRENCIAS: OCORRENCIAS };
 });

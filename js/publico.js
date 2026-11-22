@@ -1,34 +1,39 @@
-/* Mini Delivery Aterrisse — cardápio público, sacola e finalização. */
+/* Pede Sul — cardápio público de uma loja, sacola e finalização (copiado do Aterrisse).
+   Do CONIS veio a busca do endereço pelo CEP. A sacola e o último pedido ficam separados por loja. */
 (function () {
   'use strict';
   var N = window.AterrisseNucleo;
   var api = window.AterrisseBackend.criar(window.ATERRISSE_CONFIG);
   var esc = N.escaparHtml;
   var params = new URLSearchParams(location.search);
+  var LOJA = (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.LOJA) || 'aterrisse';
+  var K_SACOLA = 'pedesul_sacola_' + LOJA, K_FORM = 'pedesul_form_' + LOJA, K_ULTIMO = 'pedesul_ultimo_' + LOJA, K_CLIENTE = 'pedesul_cliente';
 
   // ?simular_hora=19:30 mostra o cardápio como se fosse esse horário em Maceió (para conferir os destaques).
   var horaSimulada = /^\d{2}:\d{2}$/.test(params.get('simular_hora') || '') ? params.get('simular_hora') : null;
   var mesaDoQr = (params.get('mesa') || '').slice(0, 20).trim();
+  // ?produto=… (veio da vitrine): abre esse produto assim que o cardápio carregar
+  var produtoDoLink = (params.get('produto') || '').slice(0, 60);
 
   var estado = {
     cardapio: null, erroCarga: null, destaque: null, busca: '',
-    sacola: lerLocal('aterrisse_sacola') || [],
-    etapa: 'sacola', form: lerSessao('aterrisse_form') || clienteLembrado(), enviando: false, ultimoEnvio: null,
-    ultimo: lerLocal('aterrisse_ultimo_pedido'), timerStatus: null
+    sacola: lerLocal(K_SACOLA) || [],
+    etapa: 'sacola', form: lerSessao(K_FORM) || clienteLembrado(), enviando: false, ultimoEnvio: null,
+    ultimo: lerLocal(K_ULTIMO), timerStatus: null
   };
   if (mesaDoQr) { estado.form.modalidade = 'local'; estado.form.mesa = mesaDoQr; }
 
   // Dados do cliente guardados SÓ neste aparelho (nome, telefone, endereço) para não digitar tudo de novo.
   // Não ficam num cadastro buscável pelo telefone: assim ninguém descobre o endereço de outra pessoa.
   function clienteLembrado() {
-    var c = lerLocal('aterrisse_cliente');
+    var c = lerLocal(K_CLIENTE);
     if (!c) return {};
     return { nome: c.nome || '', telefone: c.telefone || '', endereco: c.endereco || null, modalidade: c.modalidade || undefined, pagamento: c.pagamento || undefined, lembrar: true, lembrado: true };
   }
   function guardarCliente(f) {
-    if (f.lembrar === false) { gravarLocal('aterrisse_cliente', null); return; }
-    var anterior = lerLocal('aterrisse_cliente') || {};
-    gravarLocal('aterrisse_cliente', { nome: f.nome, telefone: f.telefone, modalidade: f.modalidade, pagamento: f.pagamento,
+    if (f.lembrar === false) { gravarLocal(K_CLIENTE, null); return; }
+    var anterior = lerLocal(K_CLIENTE) || {};
+    gravarLocal(K_CLIENTE, { nome: f.nome, telefone: f.telefone, modalidade: f.modalidade, pagamento: f.pagamento,
       endereco: f.modalidade === 'entrega' && f.endereco ? f.endereco : (anterior.endereco || null) });
   }
 
@@ -64,6 +69,11 @@
     }
     estado.destaque = estado.cardapio ? N.destaqueAtual(estado.cardapio.destaques, agora()) : null;
     renderTudo();
+    if (produtoDoLink && estado.cardapio) {
+      var idLink = produtoDoLink; produtoDoLink = '';
+      if (N.acharProduto(estado.cardapio, idLink)) abrirProduto(idLink);
+      else toast('Esse produto não está mais no cardápio. Veja as outras opções da loja.');
+    }
   }
 
   function limparSacolaInvalida() {
@@ -92,15 +102,31 @@
     $('#faixas').innerHTML = h;
   }
 
+  var SISTEMA_PROPRIO = (function () {
+    // site próprio do cliente (montado por montar_sistema_proprio.py): sempre sistema próprio
+    if (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.SISTEMA_PROPRIO) return true;
+    try {
+      var k = 'pedesul_proprio_' + ((window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.LOJA) || '');
+      if (/[?&]proprio=1\b/.test(location.search)) sessionStorage.setItem(k, '1');
+      else if (/[?&]proprio=0\b/.test(location.search)) sessionStorage.removeItem(k);
+      return sessionStorage.getItem(k) === '1';
+    } catch (e) { return /[?&]proprio=1\b/.test(location.search); }
+  })();
+
   function renderTopo() {
     var l = (estado.cardapio && estado.cardapio.loja) || {};
-    var nome = l.nome || 'Restaurante Aterrisse';
+    var nome = l.nome || 'Loja';
+    if (l.cor && /^#[0-9a-fA-F]{6}$/.test(l.cor)) document.documentElement.style.setProperty('--ouro', l.cor);
+    // sistema próprio da loja (link com &proprio=1, ou loja fora da vitrine): nada do Pede Sul aparece
+    var proprio = SISTEMA_PROPRIO || !l.na_vitrine;
+    var volta = $('#voltar-vitrine'); if (volta) volta.classList.toggle('oculto', proprio);
+    var plat = $('#rodape-plataforma'); if (plat) plat.innerHTML = proprio ? 'Sistema próprio · tecnologia <b>RMD</b>' : 'Loja no <b>Pede Sul</b> · desenvolvido por RMD Delivery';
     $('#nome-loja').textContent = nome; $('#rodape-nome').textContent = nome;
     document.title = nome + ' | Cardápio e pedidos';
     $('#status-loja').textContent = estado.cardapio ? (l.aberto ? 'Aberto para pedidos' : 'Fechado no momento') : 'Cardápio online';
     var selo = $('#marca-selo');
     if (l.logo_url && /^(https:\/\/|assets\/|data:image\/(png|jpeg|webp);base64,)/.test(l.logo_url)) selo.innerHTML = '<img src="' + esc(l.logo_url) + '" alt="">';
-    else selo.textContent = 'A';
+    else selo.textContent = String(nome).charAt(0).toUpperCase();
     var zap = N.linkWhatsApp(l.whatsapp || N.WHATSAPP_PADRAO, 'Olá! Vim pelo cardápio online do ' + nome + '.');
     $('#btn-zap-topo').href = zap;
     var mods = [];
@@ -220,7 +246,7 @@
     $('#barra-total').textContent = N.reais(t.subtotal);
   }
 
-  function salvarSacola() { gravarLocal('aterrisse_sacola', estado.sacola); renderTopo(); renderBarraSacola(); }
+  function salvarSacola() { gravarLocal(K_SACOLA, estado.sacola); renderTopo(); renderBarraSacola(); }
 
   // ------------------------------------------------------------ janelas
 
@@ -363,10 +389,13 @@
       '<h2 id="janela-titulo" style="flex:1">' + titulo + '</h2><button class="fechar" type="button" data-acao="fechar" aria-label="Fechar">×</button></div>';
   }
 
+  // Bairro digitado no endereço (a taxa de entrega pode mudar por bairro: Loja → Entrega, no painel)
+  function bairroAtual() { return (estado.form.endereco && estado.form.endereco.bairro) || ''; }
   function htmlTotais(modalidade) {
-    var t = N.totaisSacola(estado.sacola, estado.cardapio, modalidade);
-    var taxaTxt = modalidade === 'entrega' ? N.reais(t.taxa_entrega) : (modalidade ? 'sem taxa' : 'calculada se for entrega');
-    return '<div class="totais"><div><span>Subtotal</span><span>' + N.reais(t.subtotal) + '</span></div>' +
+    var t = N.totaisSacola(estado.sacola, estado.cardapio, modalidade, bairroAtual());
+    var porBairro = ((estado.cardapio.loja || {}).taxas_bairro || []).length > 0;
+    var taxaTxt = modalidade === 'entrega' ? (porBairro && !bairroAtual().trim() ? 'conforme o bairro' : N.reais(t.taxa_entrega)) : (modalidade ? 'sem taxa' : 'calculada se for entrega');
+    return '<div class="totais" id="totais-pedido"><div><span>Subtotal</span><span>' + N.reais(t.subtotal) + '</span></div>' +
       '<div><span>Taxa de entrega</span><span>' + taxaTxt + '</span></div>' +
       '<div class="total"><span>Total estimado</span><span>' + N.reais(t.total) + '</span></div></div>';
   }
@@ -374,7 +403,7 @@
   function htmlSacola() {
     var h = cabecalho('Sua sacola');
     if (!estado.sacola.length) return h + '<div class="vazio">Sua sacola está vazia.<br><br><button class="btn btn-ouro" type="button" data-acao="fechar">Ver cardápio</button></div>';
-    var t = N.totaisSacola(estado.sacola, estado.cardapio, estado.form.modalidade);
+    var t = N.totaisSacola(estado.sacola, estado.cardapio, estado.form.modalidade, bairroAtual());
     estado.sacola.forEach(function (i) {
       var p = N.acharProduto(estado.cardapio, i.produto_id);
       var prob = t.problemas.filter(function (x) { return x.chave === i.chave; })[0];
@@ -422,6 +451,8 @@
     h += '</div>' + (e.modalidade ? '<span class="msg-erro">' + esc(e.modalidade) + '</span>' : '') + '</fieldset>';
     if (f.modalidade === 'entrega') {
       var en = f.endereco || {};
+      h += '<div class="linha-cep">' + campo('cep', 'CEP (opcional)', en.cep, 'inputmode="numeric" maxlength="9" autocomplete="postal-code" placeholder="49000-000"', e.cep, 'Digite o CEP para preencher a rua e o bairro.') +
+        '<button class="btn btn-linha btn-peq" type="button" data-acao="buscar-cep">Buscar CEP</button></div><div id="cep-msg" class="ajuda" aria-live="polite"></div>';
       h += '<div class="linha-3">' + campo('rua', 'Rua *', en.rua, 'autocomplete="address-line1" maxlength="120"', e.rua) +
         campo('numero', 'Número *', en.numero, 'maxlength="20" inputmode="numeric"', e.numero) + '</div>';
       h += campo('bairro', 'Bairro *', en.bairro, 'maxlength="60"', e.bairro);
@@ -453,14 +484,14 @@
     ['nome', 'telefone', 'mesa', 'pagamento', 'troco', 'observacoes'].forEach(function (k) { var v = val(k); if (v !== undefined) f[k] = v; });
     var m = form.querySelector('input[name="modalidade"]:checked'); if (m) f.modalidade = m.value;
     if (form.elements.lembrar) f.lembrar = form.elements.lembrar.checked;
-    if (form.elements.rua) f.endereco = { rua: val('rua'), numero: val('numero'), bairro: val('bairro'), complemento: val('complemento'), referencia: val('referencia') };
-    gravarSessao('aterrisse_form', f);
+    if (form.elements.rua) f.endereco = { cep: val('cep'), rua: val('rua'), numero: val('numero'), bairro: val('bairro'), complemento: val('complemento'), referencia: val('referencia') };
+    gravarSessao(K_FORM, f);
   }
 
   function validarFormulario() {
     var f = estado.form, l = estado.cardapio.loja;
     var e = N.validarCheckout(f, l);
-    var t = N.totaisSacola(estado.sacola, estado.cardapio, f.modalidade);
+    var t = N.totaisSacola(estado.sacola, estado.cardapio, f.modalidade, bairroAtual());
     if (f.pagamento === 'dinheiro') { var et = N.validarTroco(f.troco, t.total); if (et) e.troco = et; }
     if (t.subtotal < Number(l.pedido_minimo || 0)) e.pagamento = 'Pedido mínimo de ' + N.reais(l.pedido_minimo) + '.';
     estado.errosForm = e;
@@ -506,10 +537,10 @@
       var r = await api.criarPedido(dados);
       estado.ultimoEnvio = { numero: r.numero, acompanhamento: r.acompanhamento, total: r.total, modalidade: f.modalidade, itens: r.itens, status: r.status, criado_em: r.criado_em, demo: api.modo === 'demo', teste: !!r.teste, prazo_em: r.prazo_em || null, pagamento: f.pagamento };
       estado.ultimo = { numero: r.numero, acompanhamento: r.acompanhamento, criado_em: r.criado_em, demo: api.modo === 'demo' };
-      gravarLocal('aterrisse_ultimo_pedido', estado.ultimo);
+      gravarLocal(K_ULTIMO, estado.ultimo);
       estado.sacola = []; salvarSacola();
       guardarCliente(estado.form);
-      estado.form.observacoes = ''; estado.form.chave_envio = null; estado.form.lembrado = estado.form.lembrar !== false; gravarSessao('aterrisse_form', estado.form);
+      estado.form.observacoes = ''; estado.form.chave_envio = null; estado.form.lembrado = estado.form.lembrar !== false; gravarSessao(K_FORM, estado.form);
       estado.etapa = 'enviado';
       iniciarAcompanhamento();
     } catch (e) {
@@ -562,7 +593,7 @@
     try {
       var r = await api.acompanhar(u.numero, u.acompanhamento);
       if (!r) return;
-      estado.ultimoEnvio = estado.ultimoEnvio && estado.ultimoEnvio.numero === r.numero ? Object.assign(estado.ultimoEnvio, { status: r.status, prazo_em: r.prazo_em || estado.ultimoEnvio.prazo_em, entregador: r.entregador || null })
+      estado.ultimoEnvio = estado.ultimoEnvio && estado.ultimoEnvio.numero === r.numero ? Object.assign(estado.ultimoEnvio, { status: r.status, modalidade: r.modalidade || estado.ultimoEnvio.modalidade, total: r.total !== undefined ? r.total : estado.ultimoEnvio.total, prazo_em: r.prazo_em || estado.ultimoEnvio.prazo_em, entregador: r.entregador || null })
         : { numero: r.numero, acompanhamento: u.acompanhamento, total: r.total, modalidade: r.modalidade, status: r.status, demo: u.demo, prazo_em: r.prazo_em || null, entregador: r.entregador || null };
       if ($('#janela-raiz').dataset.aberta === 'sacola' && estado.etapa === 'enviado') renderSacola();
     } catch (e) { /* tenta de novo no próximo ciclo */ }
@@ -571,6 +602,25 @@
   function iniciarAcompanhamento() {
     if (estado.timerStatus) clearInterval(estado.timerStatus);
     estado.timerStatus = setInterval(atualizarStatus, 15000);
+  }
+
+  // ------------------------------------------------------------ CEP (do CONIS): consulta pública dos Correios via ViaCEP
+  async function buscarCep() {
+    var campoCep = $('#f-cep'), msg = $('#cep-msg');
+    var cep = N.soDigitos(campoCep && campoCep.value);
+    if (cep.length !== 8) { msg.textContent = 'O CEP tem 8 números.'; return; }
+    msg.textContent = 'Procurando o CEP…';
+    try {
+      var r = await fetch('https://viacep.com.br/ws/' + cep + '/json/');
+      var j = await r.json();
+      if (!r.ok || j.erro) { msg.textContent = 'CEP não encontrado. Preencha a rua e o bairro.'; return; }
+      if (j.logradouro) $('#f-rua').value = j.logradouro;
+      if (j.bairro) $('#f-bairro').value = j.bairro;
+      msg.textContent = 'Endereço encontrado: ' + [j.logradouro, j.bairro, j.localidade + '/' + j.uf].filter(Boolean).join(' · ') + '. Agora o número.';
+      lerFormulario();
+      var cxTot = $('#totais-pedido'); if (cxTot) cxTot.outerHTML = htmlTotais(estado.form.modalidade);
+      var num = $('#f-numero'); if (num) num.focus();
+    } catch (e) { msg.textContent = 'Sem conexão para buscar o CEP. Preencha a rua e o bairro.'; }
   }
 
   // ------------------------------------------------------------ eventos
@@ -598,9 +648,10 @@
     else if (acao === 'editar-item') { var i2 = estado.sacola.filter(function (i) { return i.chave === alvo.dataset.chave; })[0]; if (i2) abrirProduto(i2.produto_id, i2.chave); }
     else if (acao === 'etapa') { lerFormulario(); estado.etapa = alvo.dataset.etapa; estado.errosForm = null; renderSacola(); }
     else if (acao === 'enviar') enviar();
+    else if (acao === 'buscar-cep') buscarCep();
     else if (acao === 'esquecer-dados') {
-      gravarLocal('aterrisse_cliente', null);
-      estado.form = { modalidade: estado.form.modalidade, lembrar: false }; gravarSessao('aterrisse_form', estado.form);
+      gravarLocal(K_CLIENTE, null);
+      estado.form = { modalidade: estado.form.modalidade, lembrar: false }; gravarSessao(K_FORM, estado.form);
       toast('Seus dados foram apagados deste aparelho.'); renderSacola();
     }
     else if (acao === 'ver-ultimo') {
@@ -636,7 +687,7 @@
     lerFormulario();
     if (validarFormulario()) {
       estado.etapa = 'revisar'; estado.erroEnvio = '';
-      if (!estado.form.chave_envio) { estado.form.chave_envio = 'e' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); gravarSessao('aterrisse_form', estado.form); }
+      if (!estado.form.chave_envio) { estado.form.chave_envio = 'e' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); gravarSessao(K_FORM, estado.form); }
     }
     renderSacola();
     var primeiroErro = document.querySelector('.campo.invalido input, .campo.invalido select, .campo.invalido textarea');
@@ -646,6 +697,12 @@
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && $('#janela-raiz').dataset.aberta) fecharJanela(); });
 
   var tBusca = null;
+  document.addEventListener('input', function (ev) {
+    if (!ev.target || ev.target.id !== 'f-bairro') return;
+    lerFormulario();
+    var caixa = $('#totais-pedido');
+    if (caixa) caixa.outerHTML = htmlTotais(estado.form.modalidade);
+  });
   $('#busca').addEventListener('input', function (ev) {
     clearTimeout(tBusca);
     tBusca = setTimeout(function () { estado.busca = ev.target.value; renderCardapio(); }, 150);

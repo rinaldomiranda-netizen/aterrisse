@@ -1,7 +1,7 @@
-/* Service worker do Mini Delivery Aterrisse.
+/* Service worker do Pede Sul (copiado do Aterrisse).
    Sempre busca a versão nova na rede; a cópia guardada só é usada se estiver sem internet.
    Pedidos e dados do Supabase NUNCA são guardados aqui. */
-var CACHE = 'aterrisse-v1';
+var CACHE = 'pedesul-v1';
 self.addEventListener('install', function () { self.skipWaiting(); });
 self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', function (e) {

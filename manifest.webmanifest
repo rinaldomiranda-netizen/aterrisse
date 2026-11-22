@@ -1,15 +1,14 @@
 {
-  "name": "Restaurante Aterrisse — Cardápio",
-  "short_name": "Aterrisse",
-  "description": "Cardápio e pedidos do Restaurante Aterrisse",
-  "lang": "pt-BR",
-  "start_url": "./",
+  "name": "Restaurante Aterrisse",
+  "short_name": "Restaurante Aterrisse",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#141210",
-  "theme_color": "#141210",
+  "background_color": "#0c1c27",
+  "theme_color": "#0f2a3d",
+  "lang": "pt-BR",
   "icons": [
-    { "src": "assets/marca/icone_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/marca/aterrisse_icone.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "assets/marca/icone_192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/marca/icone_512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

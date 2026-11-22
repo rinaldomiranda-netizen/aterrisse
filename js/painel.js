@@ -1,4 +1,5 @@
-/* Mini Delivery Aterrisse — painel da equipe (login obrigatório). */
+/* Pede Sul — painel da equipe de cada loja (login obrigatório). Copiado do Aterrisse; caixa, mesas, clientes,
+   oferta ao entregador, ocorrências e impressão da comanda vieram do CONIS. */
 (function () {
   'use strict';
   var N = window.AterrisseNucleo;
@@ -7,14 +8,20 @@
   function $(s) { return document.querySelector(s); }
 
   var ABAS = {
-    admin: ['inicio', 'pedidos', 'cozinha', 'entregas', 'cardapio', 'post', 'horarios', 'loja', 'qrcode', 'relatorios', 'equipe'],
-    atendente: ['inicio', 'pedidos', 'cozinha', 'entregas', 'post'],
+    admin: ['inicio', 'pedidos', 'caixa', 'mesas', 'cozinha', 'entregas', 'clientes', 'cardapio', 'post', 'horarios', 'loja', 'qrcode', 'relatorios', 'equipe'],
+    atendente: ['inicio', 'pedidos', 'caixa', 'mesas', 'cozinha', 'entregas', 'clientes', 'post'],
+    caixa: ['caixa', 'pedidos', 'mesas', 'clientes'],
+    garcom: ['mesas'],
     cozinha: ['cozinha'],
     entregador: ['minhas']
   };
-  var NOMES_ABA = { inicio: 'Início', pedidos: 'Pedidos', cozinha: 'Cozinha', entregas: 'Entregas', minhas: 'Minhas entregas', cardapio: 'Cardápio', post: '📣 Post do dia',
-    horarios: 'Horários', loja: 'Loja', qrcode: 'QR Code', relatorios: 'Relatórios', equipe: 'Equipe' };
-  var NOMES_PAPEL = { admin: 'Administrador', atendente: 'Atendente', cozinha: 'Cozinha', entregador: 'Entregador' };
+  var NOMES_ABA = { inicio: 'Início', pedidos: 'Pedidos', caixa: '💰 Caixa', mesas: '🍽️ Mesas', cozinha: 'Cozinha', entregas: 'Entregas', clientes: 'Clientes', minhas: 'Minhas entregas',
+    cardapio: 'Cardápio', post: '📣 Post do dia', horarios: 'Horários', loja: 'Loja', qrcode: 'QR Code', relatorios: 'Relatórios', equipe: 'Equipe' };
+  var NOMES_PAPEL = { admin: 'Administrador', atendente: 'Atendente', caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha', entregador: 'Entregador' };
+  var LOJA = (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.LOJA) || 'aterrisse';
+  var SENHA_TESTE = (window.ATERRISSE_CONFIG && window.ATERRISSE_CONFIG.SENHA_TESTE) || '123456';
+  function comLoja(pagina) { return pagina + '?loja=' + encodeURIComponent(LOJA); }
+  var NOMES_PAG = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão' };
 
   var st = { papel: null, aba: null, pedidos: [], fila: [], minhas: [], adm: null, entregadores: [], equipe: [],
     filtro: 'abertos', busca: '', vistos: null, timer: null, erro: null, msg: null };
@@ -37,7 +44,8 @@
   }
 
   // Abas que o desenvolvedor RMD deixou liberadas (recursos desligados somem do painel; o servidor também recusa).
-  var RECURSO_DA_ABA = { cozinha: 'cozinha', entregas: 'entregadores', minhas: 'entregadores', qrcode: 'qrcode', relatorios: 'relatorios' };
+  var RECURSO_DA_ABA = { cozinha: 'cozinha', entregas: 'entregadores', minhas: 'entregadores', qrcode: 'qrcode', relatorios: 'relatorios',
+    caixa: 'caixa', mesas: 'mesas', clientes: 'clientes', post: 'post' };
   // cozinha.html: tela separada da cozinha (só a fila, sem valores), para o tablet/monitor da cozinha.
   var TELA_COZINHA = window.ATERRISSE_TELA === 'cozinha';
   function abasLiberadas() {
@@ -50,6 +58,28 @@
   }
 
   // ================================================================ login
+  // Senha: loja em teste aceita a provisória simples (ex.: 1234); loja vendendo de verdade pede senha forte.
+  function erroSenha(senha, real) {
+    var s = String(senha || '');
+    if (!real) return s.length < 4 ? 'A senha precisa ter pelo menos 4 caracteres.' : null;
+    return s.length < 8 || !/[0-9]/.test(s) || !/[a-zA-Z]/.test(s) ? 'A senha precisa ter pelo menos 8 caracteres, com letras e números.' : null;
+  }
+  // Loja vendendo de verdade e a pessoa ainda com a senha provisória: cria a senha definitiva (o banco não libera nada antes).
+  function telaNovaSenha(msg) {
+    $('#conteudo').innerHTML = '<div class="login caixa"><h2>Crie a sua senha definitiva</h2>' +
+      '<p>A loja já está funcionando de verdade. Troque a senha provisória por uma só sua: pelo menos 8 caracteres, com letras e números.</p>' +
+      (msg ? '<div class="erro-caixa">' + esc(msg) + '</div>' : '') +
+      '<form id="form-nova-senha"><div class="campo"><label for="ns-1">Nova senha</label><input id="ns-1" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></div>' +
+      '<div class="campo"><label for="ns-2">Repita a nova senha</label><input id="ns-2" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></div>' +
+      '<button class="btn btn-ouro btn-bloco" type="submit">Salvar e entrar</button></form></div>';
+    $('#ns-1').focus();
+  }
+  async function salvarNovaSenha() {
+    var a = $('#ns-1').value, b = $('#ns-2').value, e = erroSenha(a, true);
+    if (e) return telaNovaSenha(e);
+    if (a !== b) return telaNovaSenha('As senhas não são iguais.');
+    try { await api.criarMinhaSenha(a); toast('Senha definitiva salva.'); iniciar(); } catch (er) { telaNovaSenha(er.message); }
+  }
 
   function telaLogin(mensagem) {
     $('#nav').classList.add('oculto'); $('#btn-sair').classList.add('oculto'); $('#quem').textContent = 'Área da equipe';
@@ -69,7 +99,7 @@
       h += '<form id="form-login" data-tipo="entrar">' + '<div class="campo"><label for="l-usuario">Usuário</label><input id="l-usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="120"></div>' +
         '<div class="campo"><label for="l-senha">Senha</label><input id="l-senha" type="password" autocomplete="current-password" required></div>' +
         '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form>' +
-        '<p style="font-size:14px;color:var(--texto-2);margin-top:14px">Não tem acesso ou esqueceu a senha? Peça ao dono do restaurante: ele cria o seu usuário e define uma senha nova no painel (Equipe).</p>';
+        '<p style="font-size:14px;color:var(--texto-2);margin-top:14px">Use o usuário desta loja. Não tem acesso ou esqueceu a senha? Peça ao dono da loja: ele cria o seu usuário e define uma senha nova no painel (Equipe).</p>';
     }
     h += '</div>';
     $('#conteudo').innerHTML = h;
@@ -86,23 +116,35 @@
       try { rmd = await api.souRmd(); } catch (e) { /* segue */ }
       $('#conteudo').innerHTML = rmd
         ? '<div class="login caixa"><h2>Conta do desenvolvedor RMD</h2><p>Esta conta não acessa o painel do restaurante (vendas e clientes são do restaurante). Use a <a href="rmd.html">área do desenvolvedor</a>.</p></div>'
-        : '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe do Aterrisse. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
+        : '<div class="login caixa"><h2>Acesso não liberado</h2><p>Sua conta ainda não faz parte da equipe desta loja. Peça ao administrador para liberar em Painel → Equipe.</p></div>';
       return;
     }
+    if (api.trocarSenhaPendente) { $('#btn-sair').classList.remove('oculto'); return telaNovaSenha(); }
     if (api.vitrine && TELA_COZINHA) st.papel = 'cozinha'; // demonstração: a tela da cozinha age como a conta da cozinha
-    if (st.papel === 'entregador') { location.href = 'entregador.html'; return; }
-    if (st.papel === 'cozinha' && !TELA_COZINHA) { location.href = 'cozinha.html'; return; }
+    if (st.papel === 'entregador') { location.href = comLoja('entregador.html'); return; }
+    if (st.papel === 'cozinha' && !TELA_COZINHA) { location.href = comLoja('cozinha.html'); return; }
     try { st.lojaPub = (await api.cardapio()).loja; } catch (e) { /* sem conexão: segue com o padrão */ }
+    aplicarMarcaLoja();
     renderFaixas();
     window.AterrissePrazo.aoAtrasar(function (id, numero) { bip(); toast('⚠ Pedido #' + numero + ' passou do prazo!'); });
     var s = api.sessao() || {};
-    $('#quem').textContent = N.usuarioVisivel(s.email || '') + ' · ' + NOMES_PAPEL[st.papel];
+    $('#quem').textContent = (s.usuario || N.usuarioVisivel(s.email || '')) + ' · ' + NOMES_PAPEL[st.papel];
     if (!api.vitrine) $('#btn-sair').classList.remove('oculto'); // na demonstração não há login para sair
     var abas = abasLiberadas();
     var pedida = (location.hash || '').slice(1);
     irPara(abas.indexOf(pedida) >= 0 ? pedida : abas[0]);
     if (st.timer) clearInterval(st.timer);
     st.timer = setInterval(atualizarPeriodico, 10000);
+  }
+
+  // Nome e cor da loja no topo (cada loja com a sua cara).
+  function aplicarMarcaLoja() {
+    var l = st.lojaPub;
+    if (!l) return;
+    var forte = $('.topo .marca-texto strong');
+    if (forte && !TELA_COZINHA) forte.textContent = 'Painel · ' + l.nome;
+    else if (forte) forte.textContent = 'Cozinha · ' + l.nome;
+    if (l.cor && /^#[0-9a-fA-F]{6}$/.test(l.cor)) document.documentElement.style.setProperty('--cor-loja', l.cor);
   }
 
   // ================================================================ navegação
@@ -141,8 +183,12 @@
 
     if (aba === 'minhas') st.minhas = await api.minhasEntregas();
     if (aba === 'cardapio' || aba === 'horarios' || aba === 'loja' || aba === 'qrcode') st.adm = await api.cardapioCompleto();
+    if (aba === 'loja') { try { st.entrega = await api.dadosEntrega(); } catch (e) { st.entrega = null; } }
     if (aba === 'post') { st.cardPub = await api.cardapio(); try { st.adm = await api.cardapioCompleto(); } catch (e) { st.adm = null; } }
     if (aba === 'equipe') { st.entregadores = await api.listarEntregadores(); st.equipe = await api.listarEquipe(); }
+    if (aba === 'caixa') { st.caixa = await api.caixa(); st.pedidos = await api.listarPedidos(2); if (!st.cardPub) st.cardPub = await api.cardapio(); }
+    if (aba === 'mesas') { st.mesas = await api.mesas(); st.cardPub = await api.cardapio(); }
+    if (aba === 'clientes') st.clientes = await api.clientes();
   }
 
   // Aviso de pedido novo (som curto + título da aba).
@@ -153,7 +199,10 @@
       if (novos.length) { bip(); toast(novos.length === 1 ? 'Chegou um pedido novo!' : 'Chegaram ' + novos.length + ' pedidos novos!'); }
     }
     st.vistos = ids;
-    document.title = (ids.length ? '(' + ids.length + ') ' : '') + 'Painel | Restaurante Aterrisse';
+    document.title = (ids.length ? '(' + ids.length + ') ' : '') + 'Painel | ' + ((st.lojaPub && st.lojaPub.nome) || 'Pede Sul');
+    var abertas = st.pedidos.filter(function (p) { return (p.ocorrencias || []).some(function (o) { return !o.resolvida; }); }).length;
+    if (abertas > (st.ocorrenciasVistas || 0)) { bip(); toast('⚠ Ocorrência de entrega! Veja em Pedidos.'); }
+    st.ocorrenciasVistas = abertas;
   }
   function bip() {
     try {
@@ -166,7 +215,7 @@
 
   async function atualizarPeriodico() {
     if (document.querySelector('#janela-raiz .fundo') && st.aba !== 'pedidos') return;
-    if (['inicio', 'pedidos', 'cozinha', 'entregas', 'minhas'].indexOf(st.aba) < 0) {
+    if (['inicio', 'pedidos', 'cozinha', 'entregas', 'minhas', 'mesas'].indexOf(st.aba) < 0) {
       if (st.papel === 'admin' || st.papel === 'atendente') { try { st.pedidos = await api.listarPedidos(2); marcarVistos(); renderNav(); } catch (e) { /* tenta depois */ } }
       return;
     }
@@ -180,7 +229,8 @@
     var c = $('#conteudo');
     var topo = st.erro ? '<div class="erro-caixa" role="alert">Falha de comunicação: ' + esc(st.erro) + ' <button class="btn btn-linha btn-peq" type="button" data-acao="aba" data-aba="' + st.aba + '">Tentar de novo</button></div>' : '';
     var f = { inicio: telaInicio, pedidos: telaPedidos, cozinha: telaCozinha, entregas: telaEntregas, minhas: telaMinhas, cardapio: telaCardapio,
-      horarios: telaHorarios, loja: telaLoja, qrcode: telaQr, relatorios: telaRelatorios, equipe: telaEquipe, post: telaPost }[st.aba];
+      horarios: telaHorarios, loja: telaLoja, qrcode: telaQr, relatorios: telaRelatorios, equipe: telaEquipe, post: telaPost,
+      caixa: telaCaixa, mesas: telaMesas, clientes: telaClientes }[st.aba];
     c.innerHTML = topo + (f ? f() : '');
     if (st.aba === 'qrcode') desenharQr();
     if (st.aba === 'horarios') previaHorarios();
@@ -221,8 +271,16 @@
     var onde = p.modalidade === 'entrega' ? (p.endereco ? p.endereco.bairro : '') : p.modalidade === 'local' ? (p.mesa ? 'Mesa ' + p.mesa : 'Na loja') : 'Balcão';
     return '<button class="pedido-linha" type="button" data-acao="abrir-pedido" data-id="' + esc(p.id) + '"><span class="num">#' + esc(p.numero) + '</span>' +
       '<span class="info"><b>' + (p.teste ? '<span class="status st-TESTE">TESTE</span> ' : '') + esc(p.nome) + '</b><small>' + esc(N.dataHora(p.criado_em)) + ' · ' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (onde ? ' · ' + esc(onde) : '') + '</small>' +
-      (ent ? '<small>🛵 ' + esc(ent) + '</small>' : (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0 ? '<small style="color:var(--aviso)">sem entregador</small>' : '')) + '</span>' +
+      (ent ? '<small>🛵 ' + esc(ent) + '</small>' : (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0 ? '<small style="color:var(--aviso)">' + esc(textoOferta(p)) + '</small>' : '')) +
+      ((p.ocorrencias || []).some(function (o) { return !o.resolvida; }) ? '<small style="color:var(--erro);font-weight:800">⚠ ocorrência de entrega</small>' : '') + '</span>' +
       '<span class="lado">' + (window.AterrissePrazo.html(p) ? window.AterrissePrazo.html(p) + '<br>' : '') + '<span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span><br><b>' + N.reais(p.total) + '</b></span></button>';
+  }
+
+  function textoOferta(p) {
+    if (!p.oferta) return 'sem entregador';
+    if (p.oferta.sem_ninguem) return 'ninguém online para aceitar';
+    var e = st.entregadores.filter(function (x) { return x.id === p.oferta.entregador_id; })[0];
+    return 'oferecida a ' + (e ? e.nome : 'um entregador') + ', aguardando';
   }
 
   function telaPedidos() {
@@ -252,7 +310,7 @@
     document.body.style.overflow = 'hidden';
     var f = document.querySelector('#janela-raiz .fechar'); if (f) f.focus();
   }
-  function fecharJanela() { $('#janela-raiz').innerHTML = ''; document.body.style.overflow = ''; pedidoAberto = null; }
+  function fecharJanela() { $('#janela-raiz').innerHTML = ''; document.body.style.overflow = ''; pedidoAberto = null; montar = null; }
 
   var NOMES_BOTAO = { ACEITO: '✔ Aceitar', EM_PREPARACAO: '🍳 Em preparação', PRONTO: '✅ Pronto', SAIU_PARA_ENTREGA: '🛵 Saiu para entrega', ENTREGUE: '📦 Entregue', CONCLUIDO: '🏁 Concluído', CANCELADO: 'Cancelar pedido' };
 
@@ -283,7 +341,30 @@
         }).join('') + '</div>' +
         (window.AterrissePix && (st.lojaPub || {}).pix_chave ? '<button class="btn btn-linha btn-peq" type="button" data-acao="pix-pedido" data-id="' + esc(p.id) + '" style="margin-top:6px">' + (st.pixAberto === p.id ? 'Esconder QR do Pix' : '📱 Mostrar QR do Pix') + '</button>' +
           (st.pixAberto === p.id ? window.AterrissePix.bloco(st.lojaPub, Number(p.total), p.numero, 'Mostre ao cliente no balcão ou na mesa.') : '') : '') : '') + '</div>';
-    if (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0) {
+    (p.ocorrencias || []).forEach(function (o, i) {
+      h += '<div class="' + (o.resolvida ? 'resumo-bloco' : 'erro-caixa') + '"><b>' + (o.resolvida ? '✔ ' : '⚠ ') + esc(o.nome) + '</b> · ' + esc(N.dataHora(o.em)) + (o.texto ? '<br>' + esc(o.texto) : '') +
+        (o.resolvida ? '' : '<div class="barra-acoes" style="margin:6px 0 0">' + (p.telefone ? '<a class="btn btn-linha btn-peq" target="_blank" rel="noopener" href="' + esc(N.linkWhatsApp(N.normalizarTelefone(p.telefone), 'Olá, ' + p.nome.split(' ')[0] + '! Aqui é do ' + ((st.lojaPub && st.lojaPub.nome) || 'restaurante') + ', sobre a entrega do pedido nº ' + p.numero + '.')) + '">WhatsApp do cliente</a>' : '') +
+          '<button class="btn btn-linha btn-peq" type="button" data-acao="resolver-ocorrencia" data-id="' + esc(p.id) + '" data-i="' + i + '">Marcar resolvida</button></div>') + '</div>';
+    });
+    var temParceiro = ((st.lojaPub || {}).recursos || {}).parceiros === true && api.modo === 'supabase';
+    if (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0 && p.parceiro_id) {
+      h += '<div class="resumo-bloco"><b>🛵 Entregador parceiro: ' + esc(p.parceiro_nome || '') + '</b>' +
+        (p.parceiro_telefone ? ' · <a target="_blank" rel="noopener" href="' + esc(N.linkWhatsApp(N.normalizarTelefone(p.parceiro_telefone), 'Olá, ' + String(p.parceiro_nome || '').split(' ')[0] + '! Aqui é do ' + ((st.lojaPub && st.lojaPub.nome) || 'restaurante') + ', sobre o pedido nº ' + p.numero + '.')) + '">WhatsApp</a>' : '') +
+        '<br><small style="color:var(--texto-2)">Ele aceitou o chamado e vem buscar. Marque "Pronto" quando o pedido estiver separado.</small></div>';
+    } else if (p.modalidade === 'entrega' && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0) {
+      if (temParceiro && !p.entregador_id && p.status !== 'SAIU_PARA_ENTREGA') {
+        h += p.parceiro_chamado_em
+          ? '<div class="resumo-bloco"><b>🛵 Chamando entregador parceiro…</b> desde ' + esc(N.dataHora(p.parceiro_chamado_em)) +
+            '<div class="barra-acoes" style="margin:6px 0 0"><button class="btn btn-linha btn-peq" type="button" data-acao="cancelar-parceiro" data-id="' + esc(p.id) + '">Cancelar o chamado</button></div>' +
+            '<small style="color:var(--texto-2)">O primeiro parceiro que aceitar aparece aqui.</small></div>'
+          : '<div class="resumo-bloco"><button class="btn btn-linha btn-peq" type="button" data-acao="chamar-parceiro" data-id="' + esc(p.id) + '">🛵 Chamar entregador parceiro da RMD</button>' +
+            '<br><small style="color:var(--texto-2)">Para quando faltar entregador da loja. ' + N.reais((window.RmdPlanos && window.RmdPlanos.VALOR_CHAMADA) || 1.5) + ' por chamado aceito; o motoboy fica com a taxa de entrega do pedido.</small></div>';
+      }
+      if (!p.parceiro_chamado_em && !p.entregador_id && p.status !== 'SAIU_PARA_ENTREGA' && ((st.lojaPub || {}).recursos || {}).oferta !== false) {
+        h += '<div class="resumo-bloco"><b>🛵 ' + esc(textoOferta(p)) + '</b>' + (p.oferta && p.oferta.recusados && p.oferta.recusados.length ? ' · ' + p.oferta.recusados.length + ' recusa(s)' : '') +
+          '<div class="barra-acoes" style="margin:6px 0 0"><button class="btn btn-linha btn-peq" type="button" data-acao="oferecer" data-id="' + esc(p.id) + '">📣 Oferecer aos entregadores online</button></div>' +
+          '<small style="color:var(--texto-2)">A entrega vai para o entregador online com menos entregas. Se ele recusar, passa para o próximo. Ou escolha abaixo.</small></div>';
+      }
       h += '<div class="campo"><label for="sel-entregador">Entregador</label><select id="sel-entregador" data-acao="entregador" data-id="' + esc(p.id) + '"><option value="">— sem entregador —</option>' +
         st.entregadores.filter(function (e) { return e.ativo !== false; }).map(function (e) { return '<option value="' + esc(e.id) + '"' + (p.entregador_id === e.id ? ' selected' : '') + '>' + esc(e.nome) + '</option>'; }).join('') +
         '</select>' + (st.entregadores.length ? '' : '<span class="ajuda">Cadastre entregadores em Equipe.</span>') + '</div>';
@@ -294,6 +375,7 @@
         return '<button class="btn ' + (s === 'CANCELADO' ? 'btn-perigo' : 'btn-ouro') + '" type="button" data-acao="status" data-id="' + esc(p.id) + '" data-para="' + s + '">' + NOMES_BOTAO[s] + '</button>';
       }).join('') + '</div>';
     }
+    h += '<div class="barra-acoes"><button class="btn btn-linha btn-peq" type="button" data-acao="imprimir-comanda" data-id="' + esc(p.id) + '">🖨️ Imprimir comanda</button></div>';
     h += '<h3>Histórico</h3><ul class="linha-tempo">' + (p.historico || []).map(function (x) {
       return '<li class="feito">' + esc(N.STATUS_NOMES[x.para]) + ' · ' + esc(N.dataHora(x.em)) + (x.motivo ? ' — ' + esc(x.motivo) : '') + '</li>';
     }).join('') + '</ul>';
@@ -358,8 +440,12 @@
 
   function telaEntregas() {
     var lista = st.pedidos.filter(function (p) { return p.modalidade === 'entrega' && ['ACEITO', 'EM_PREPARACAO', 'PRONTO', 'SAIU_PARA_ENTREGA'].indexOf(p.status) >= 0; });
-    var h = '<h2>Entregas</h2><p style="color:var(--texto-2);font-size:13px">Escolha o entregador de cada pedido. Sem mapa nem rastreamento: o status é atualizado por quem faz a entrega.</p>';
+    var h = '<h2>Entregas</h2><p style="color:var(--texto-2);font-size:13px">Quando o pedido fica pronto, a entrega é oferecida sozinha ao entregador online (ele aceita ou recusa no celular). Você também pode escolher o entregador no pedido. Sem rastreamento: o status é atualizado por quem faz a entrega.</p>';
     if (!st.entregadores.length) h += '<div class="aviso-caixa">Nenhum entregador cadastrado. Cadastre em Equipe.</div>';
+    else h += '<div class="caixa"><h3 style="margin-top:0">Entregadores agora</h3><div class="barra-acoes" style="margin:0">' + st.entregadores.filter(function (e) { return e.ativo !== false; }).map(function (e) {
+      var n = st.pedidos.filter(function (p) { return p.entregador_id === e.id && ['ENTREGUE', 'CANCELADO'].indexOf(p.status) < 0; }).length;
+      return '<span class="status ' + (e.online ? 'st-PRONTO' : 'st-CANCELADO') + '">' + (e.online ? '🟢 ' : '⚪ ') + esc(e.nome) + ' · ' + n + ' entrega(s)</span>';
+    }).join('') + '</div><small style="color:var(--texto-2)">Cada entregador liga “Estou trabalhando” na tela dele: <a href="' + esc(comLoja('entregador.html')) + '" target="_blank" rel="noopener">entregador.html</a></small></div>';
     h += lista.length ? '<div class="lista-pedidos">' + lista.map(function (p) {
       var ent = st.entregadores.filter(function (e) { return e.id === p.entregador_id; })[0];
       return linhaPedido(p);
@@ -611,10 +697,17 @@
     h += '<div class="caixa"><div class="campo"><label for="lj-nome">Nome *</label><input id="lj-nome" required minlength="2" maxlength="80" value="' + esc(l.nome) + '"></div>' +
       htmlLogo(l.logo_url) +
       '<div class="campo"><label for="lj-zap">WhatsApp (com 55 e DDD) *</label><input id="lj-zap" inputmode="numeric" pattern="[0-9]{12,13}" required value="' + esc(l.whatsapp) + '"></div>' +
-      '<div class="campo"><label for="lj-func">Horário de funcionamento (texto do rodapé)</label><input id="lj-func" maxlength="200" placeholder="Ex.: Todos os dias, 6h às 23h" value="' + esc(l.horario_funcionamento || '') + '"></div></div>';
+      '<div class="campo"><label for="lj-func">Horário de funcionamento (texto do rodapé)</label><input id="lj-func" maxlength="200" placeholder="Ex.: Todos os dias, 6h às 23h" value="' + esc(l.horario_funcionamento || '') + '"></div>' +
+      '<div class="linha-2"><div class="campo"><label for="lj-cor">Cor da loja</label><input id="lj-cor" type="color" value="' + esc(/^#[0-9a-fA-F]{6}$/.test(l.cor || '') ? l.cor : '#f2552c') + '"><span class="ajuda">Aparece no cardápio e na vitrine do Pede Sul.</span></div>' +
+      '<div class="campo"><label for="lj-mesas">Quantidade de mesas</label><input id="lj-mesas" type="number" min="0" max="200" value="' + esc(l.mesas_qtd || 0) + '"><span class="ajuda">Para a aba Mesas e o garçom.</span></div></div></div>';
     h += '<div class="caixa"><h3 style="margin-top:0">Modalidades</h3>' + ch('lj-ent', 'Entrega', l.aceita_entrega) + '<br>' + ch('lj-ret', 'Retirada no balcão', l.aceita_retirada) + '<br>' + ch('lj-loc', 'Consumo na loja', l.aceita_local) +
       '<div class="linha-2" style="margin-top:10px"><div class="campo"><label for="lj-taxa">Taxa de entrega (R$)</label><input id="lj-taxa" type="number" step="0.01" min="0" max="200" value="' + esc(l.taxa_entrega) + '"></div>' +
       '<div class="campo"><label for="lj-min">Pedido mínimo (R$)</label><input id="lj-min" type="number" step="0.01" min="0" value="' + esc(l.pedido_minimo) + '"></div></div>' +
+      (st.entrega ? '<div class="campo"><label for="lj-bairros">Taxa por bairro (opcional)</label><textarea id="lj-bairros" rows="5" placeholder="Um bairro por linha. Exemplo:&#10;Atalaia: 5&#10;Coroa do Meio: 6,50&#10;Farolândia: 8">' +
+        esc((st.entrega.taxas_bairro || []).map(function (x) { return x.bairro + ': ' + String(x.taxa).replace('.', ','); }).join('\n')) + '</textarea>' +
+        '<span class="ajuda">O cliente paga a taxa do bairro dele. Bairro que não estiver na lista paga a "Taxa de entrega" de cima.</span></div>' +
+        '<div class="campo"><label for="lj-endereco">Endereço da loja (onde o entregador busca)</label><input id="lj-endereco" maxlength="200" placeholder="Rua, número, bairro" value="' + esc(st.entrega.endereco || '') + '">' +
+        (st.entrega.parceiros ? '<span class="ajuda">Obrigatório para chamar o entregador parceiro da RMD.</span>' : '') + '</div>' : '') +
       '<div class="linha-2"><div class="campo"><label for="lj-pent">Previsão de entrega (min)</label><input id="lj-pent" type="number" min="0" max="240" value="' + esc(l.previsao_entrega_min || '') + '"></div>' +
       '<div class="campo"><label for="lj-pret">Previsão de retirada (min)</label><input id="lj-pret" type="number" min="0" max="240" value="' + esc(l.previsao_retirada_min || '') + '"></div></div>' +
       '<div class="campo"><label for="lj-ploc">Previsão do consumo na loja (min)</label><input id="lj-ploc" type="number" min="0" max="240" value="' + esc(l.previsao_local_min || '') + '">' +
@@ -683,6 +776,15 @@
     });
   }
 
+  // "Atalaia: 5" / "Coroa do Meio - 6,50" / "Farolândia 8" -> [{bairro, taxa}]
+  function lerBairros(texto) {
+    return String(texto || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean).map(function (l) {
+      var m = /^(.+?)[\s:=-]+R?\$?\s*([0-9]+(?:[.,][0-9]{1,2})?)$/.exec(l);
+      if (!m) throw new Error('Não entendi a linha "' + l + '". Escreva assim: Atalaia: 5');
+      return { bairro: m[1].trim(), taxa: Number(m[2].replace(',', '.')) };
+    });
+  }
+
   function lerLoja() {
     var v = function (id) { return document.getElementById(id); };
     var l = st.adm.loja;
@@ -698,7 +800,8 @@
       previsao_entrega_min: v('lj-pent').value ? Number(v('lj-pent').value) : null, previsao_retirada_min: v('lj-pret').value ? Number(v('lj-pret').value) : null,
       previsao_local_min: v('lj-ploc').value ? Number(v('lj-ploc').value) : null,
       mesa_modo: v('lj-mesa').value, pagamentos: l.pagamentos, url_publica: v('lj-url').value.trim() || null,
-      pix_chave: v('lj-pixchave').value.trim() || null, pix_nome: v('lj-pixnome').value.trim() || null, pix_cidade: v('lj-pixcidade').value.trim() || null
+      pix_chave: v('lj-pixchave').value.trim() || null, pix_nome: v('lj-pixnome').value.trim() || null, pix_cidade: v('lj-pixcidade').value.trim() || null,
+      cor: v('lj-cor').value, mesas_qtd: Math.max(0, Math.min(200, Number(v('lj-mesas').value) || 0))
     };
   }
 
@@ -707,7 +810,7 @@
   function urlCardapioPadrao() {
     var l = st.adm.loja;
     if (l.url_publica) return l.url_publica;
-    return location.href.replace(/painel\.html.*$/, '').replace(/#.*$/, '');
+    return location.href.replace(/painel\.html.*$/, '').replace(/#.*$/, '') + comLoja('loja.html');
   }
 
   function telaQr() {
@@ -770,7 +873,7 @@
     var dest = N.destaqueAtual(c.destaques, new Date());
     var catPadrao = (dest && c.categorias.filter(function (x) { return (dest.categorias || []).indexOf(x.slug) >= 0; })[0]) || c.categorias[0];
     var catSel = c.categorias.filter(function (x) { return x.id === s.categoria; })[0] || catPadrao;
-    var link = l.url_publica || location.href.replace(/painel\.html.*$/, '').replace(/#.*$/, '');
+    var link = l.url_publica || location.href.replace(/painel\.html.*$/, '').replace(/#.*$/, '') + comLoja('loja.html');
     var op = function (v, rot, atual) { return '<option value="' + esc(v) + '"' + (v === atual ? ' selected' : '') + '>' + esc(rot) + '</option>'; };
     return '<h2>📣 Post do dia para o Status</h2>' +
       '<p style="color:var(--texto-2);font-size:14px;margin-top:0">A arte sai do próprio cardápio: só entram as opções e produtos <b>disponíveis</b>. Marcou algo como esgotado no Cardápio? Ele some do post. Depois toque em <b>Compartilhar</b> → WhatsApp → <b>Meu status</b>.</p>' +
@@ -855,7 +958,7 @@
         '<form id="form-membro"><div class="linha-2"><div class="campo"><label for="m-nome">Nome</label><input id="m-nome" required minlength="2" maxlength="80"></div>' +
         '<div class="campo"><label for="m-papel">Papel</label><select id="m-papel">' + Object.keys(NOMES_PAPEL).map(function (p) { return '<option value="' + p + '"' + (p === 'atendente' ? ' selected' : '') + '>' + NOMES_PAPEL[p] + '</option>'; }).join('') + '</select></div></div>' +
         '<div class="linha-2"><div class="campo"><label for="m-usuario">Usuário</label><input id="m-usuario" required minlength="3" maxlength="30" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ex.: maria"><span class="ajuda">Sem acento e sem espaço.</span></div>' +
-        '<div class="campo"><label for="m-senha">Senha</label><input id="m-senha" type="text" required minlength="6" maxlength="72" autocomplete="new-password"><span class="ajuda">Mínimo 6 caracteres.</span></div></div>' +
+        '<div class="campo"><label for="m-senha">Senha</label><input id="m-senha" type="text" required minlength="4" maxlength="72" autocomplete="new-password" value="' + (st.lojaPub && st.lojaPub.modo === 'real' ? '' : SENHA_TESTE) + '"><span class="ajuda">' + (st.lojaPub && st.lojaPub.modo === 'real' ? 'Loja vendendo de verdade: 8 ou mais, com letras e números. A pessoa cria a definitiva no primeiro acesso.' : 'Loja em teste: senha ' + SENHA_TESTE + '. A definitiva é pedida quando a loja vender de verdade.') + '</span></div></div>' +
         '<button class="btn btn-ouro btn-peq" type="submit">Criar acesso</button></form></div>';
     }
     h += '<div class="caixa"><h3 style="margin-top:0">Entregadores</h3>' + (st.entregadores.length ? st.entregadores.map(function (e) {
@@ -864,9 +967,179 @@
     }).join('') : '<p>Nenhum entregador.</p>') +
       '<form id="form-entregador" class="barra-acoes"><input class="entrada" id="e-nome" required minlength="2" maxlength="80" placeholder="Nome" aria-label="Nome do entregador">' +
       '<input class="entrada" id="e-tel" inputmode="tel" maxlength="20" placeholder="Telefone (opcional)" aria-label="Telefone do entregador"><button class="btn btn-ouro btn-peq" type="submit">+ Entregador</button></form>' +
-      '<p style="font-size:13px;color:var(--texto-2)">Cada entregador tem tela própria no celular: <a href="entregador.html" target="_blank" rel="noopener">entregador.html</a>. Crie o acesso dele acima com o papel “Entregador”. Ele vê só as entregas dele, com prazo, endereço e botão do mapa.</p>' +
-      '<p style="font-size:13px;color:var(--texto-2)">A cozinha também tem tela própria (tablet ou monitor): <a href="cozinha.html" target="_blank" rel="noopener">cozinha.html</a>, com acesso de papel “Cozinha”. Ela vê só os pedidos a preparar, sem valores nem dados do cliente.</p></div>';
+      '<p style="font-size:13px;color:var(--texto-2)">Cada entregador tem tela própria no celular: <a href="' + esc(comLoja('entregador.html')) + '" target="_blank" rel="noopener">entregador.html</a>. Crie o acesso dele acima com o papel “Entregador”. Ele vê só as entregas dele, com prazo, endereço e botão do mapa.</p>' +
+      '<p style="font-size:13px;color:var(--texto-2)">A cozinha também tem tela própria (tablet ou monitor): <a href="' + esc(comLoja('cozinha.html')) + '" target="_blank" rel="noopener">cozinha.html</a>, com acesso de papel “Cozinha”. Ela vê só os pedidos a preparar, sem valores nem dados do cliente.</p></div>';
     return h;
+  }
+
+  // ================================================================ montar pedido (venda no balcão e garçom) — do CONIS
+  // Lista de produtos com botão +; produto com opções abre a escolha das opções. Usa as mesmas regras do cardápio do cliente.
+
+  var montar = null; // { tipo: 'balcao' | 'mesa', mesa, itens: [{produto_id, quantidade, adicionais, removidos, observacao}], escolhendo: produto_id, marcadas: [] }
+
+  function abrirMontador(tipo, mesa) {
+    montar = { tipo: tipo, mesa: mesa || null, itens: [], escolhendo: null, marcadas: [], busca: '' };
+    desenharMontador();
+  }
+  function totalMontador() { return N.totaisSacola(montar.itens, st.cardPub, null).subtotal; }
+  function desenharMontador() {
+    var c = st.cardPub, m = montar;
+    var titulo = m.tipo === 'mesa' ? 'Lançar pedido · Mesa ' + esc(m.mesa) : 'Venda no balcão';
+    var h = '<div class="janela-cab"><h2 id="janela-titulo">' + titulo + '</h2><button class="fechar" type="button" data-acao="fechar" aria-label="Fechar">×</button></div>';
+    if (m.escolhendo) {
+      var p = N.acharProduto(c, m.escolhendo);
+      h += '<div class="resumo-bloco"><b>' + esc(p.nome) + '</b> — ' + N.reais(p.preco) + '</div>';
+      (p.grupos || []).forEach(function (g) {
+        h += '<div class="rotulo" style="margin-top:8px">' + esc(g.nome) + ' <small>(' + (g.minimo ? 'escolha ' + (g.minimo === g.maximo ? g.minimo : g.minimo + ' a ' + g.maximo) : 'até ' + g.maximo) + ')</small></div><div style="display:flex;flex-wrap:wrap;gap:4px 14px">' +
+          g.opcoes.map(function (o) {
+            return '<label class="chk' + (o.disponivel === false ? ' desativada' : '') + '"><input type="checkbox" data-acao="montar-opcao" value="' + esc(o.id) + '"' + (m.marcadas.indexOf(o.id) >= 0 ? ' checked' : '') + (o.disponivel === false ? ' disabled' : '') + '> ' +
+              esc(o.nome) + (Number(o.preco) ? ' (+' + N.reais(o.preco) + ')' : '') + (o.disponivel === false ? ' (acabou)' : '') + '</label>';
+          }).join('') + '</div>';
+      });
+      h += '<div class="erros-lista" id="erros-montar" role="alert"></div><div class="rodape-janela"><button class="btn btn-linha" type="button" data-acao="montar-voltar">Voltar</button>' +
+        '<button class="btn btn-ouro" type="button" data-acao="montar-confirmar">Adicionar</button></div>';
+    } else {
+      h += '<input class="entrada" type="search" id="montar-busca" placeholder="Buscar produto" value="' + esc(m.busca) + '" aria-label="Buscar produto" style="width:100%;margin-bottom:8px">';
+      var termo = m.busca.trim().toLowerCase();
+      c.categorias.forEach(function (cat) {
+        var ps = c.produtos.filter(function (x) { return x.categoria_id === cat.id && (!termo || x.nome.toLowerCase().indexOf(termo) >= 0); });
+        if (!ps.length) return;
+        h += '<div class="rotulo" style="margin-top:8px">' + esc((cat.icone ? cat.icone + ' ' : '') + cat.nome) + '</div><div class="montar-lista">' + ps.map(function (x) {
+          return '<button type="button" class="montar-prod" data-acao="montar-produto" data-id="' + esc(x.id) + '"' + (x.disponivel === false ? ' disabled' : '') + '><span>' + esc(x.icone || '🍽️') + ' ' + esc(x.nome) + '</span><b>' + (x.disponivel === false ? 'esgotado' : N.reais(x.preco)) + '</b></button>';
+        }).join('') + '</div>';
+      });
+      h += '<h3>Itens</h3>' + (m.itens.length ? m.itens.map(function (it, i) {
+        var pr = N.acharProduto(c, it.produto_id);
+        var op = N.opcoesEscolhidas(pr, it.adicionais).map(function (o) { return o.nome; }).join(', ');
+        return '<div class="item-sacola" style="grid-template-columns:1fr auto"><div><b>' + it.quantidade + '× ' + esc(pr.nome) + '</b>' + (op ? '<div class="det">' + esc(op) + '</div>' : '') + '</div>' +
+          '<div class="qtd"><button type="button" data-acao="montar-qtd" data-i="' + i + '" data-delta="-1" aria-label="Diminuir">−</button><span>' + it.quantidade + '</span><button type="button" data-acao="montar-qtd" data-i="' + i + '" data-delta="1" aria-label="Aumentar">+</button></div></div>';
+      }).join('') : '<div class="vazio">Toque nos produtos para adicionar.</div>');
+      h += '<div class="totais"><div class="total"><span>Total</span><span>' + N.reais(totalMontador()) + '</span></div></div>';
+      if (m.tipo === 'balcao') {
+        h += '<div class="linha-2"><div class="campo"><label for="mt-nome">Nome do cliente (opcional)</label><input id="mt-nome" maxlength="80"></div>' +
+          '<div class="campo"><label for="mt-tel">Telefone (opcional)</label><input id="mt-tel" inputmode="tel" maxlength="20" data-acao="montar-tel"><span class="ajuda" id="mt-cliente"></span></div></div>' +
+          '<div class="campo"><label for="mt-pag">Pagamento</label><select id="mt-pag">' + [['dinheiro', '💵 Dinheiro'], ['cartao', '💳 Cartão'], ['pix', '📱 Pix']].map(function (f) { return '<option value="' + f[0] + '">' + f[1] + '</option>'; }).join('') + '</select></div>' +
+          '<label class="chk"><input type="checkbox" id="mt-pago" checked> Recebido agora (entra no caixa)</label>';
+      } else {
+        h += '<div class="campo"><label for="mt-garcom">Garçom</label><input id="mt-garcom" maxlength="40" value="' + esc(st.garcom || '') + '"></div>' +
+          '<div class="campo"><label for="mt-obs">Observação para a cozinha (opcional)</label><input id="mt-obs" maxlength="200"></div>';
+      }
+      h += '<div class="erros-lista" id="erros-montar" role="alert"></div><div class="rodape-janela"><button class="btn btn-ouro" type="button" data-acao="montar-enviar"' + (m.itens.length ? '' : ' disabled') + '>' +
+        (m.tipo === 'mesa' ? 'Enviar para a cozinha' : 'Registrar venda') + ' · ' + N.reais(totalMontador()) + '</button></div>';
+    }
+    var j = document.querySelector('#janela-raiz .janela');
+    if (j && j.dataset.montador) { var r = j.scrollTop; j.innerHTML = h; j.scrollTop = m.escolhendo ? 0 : r; } else { abrirJanela(h); document.querySelector('#janela-raiz .janela').dataset.montador = '1'; }
+  }
+  function adicionarAoMontador(item) {
+    item.chave = N.chaveItem(item);
+    var igual = montar.itens.filter(function (i) { return i.chave === item.chave; })[0];
+    if (igual) igual.quantidade = Math.min(50, igual.quantidade + 1); else montar.itens.push(item);
+  }
+
+  // ================================================================ caixa — do CONIS
+
+  function telaCaixa() {
+    var cx = st.caixa, h = '<h2>💰 Caixa</h2>';
+    if (!cx.aberto) {
+      h += '<form id="form-abrir-caixa" class="caixa"><h3 style="margin-top:0">Caixa fechado</h3><p style="color:var(--texto-2);font-size:14px;margin-top:0">Abra o caixa no começo do expediente com o dinheiro de troco que está na gaveta. As vendas recebidas a partir daí entram na conta do caixa.</p>' +
+        '<div class="campo"><label for="cx-inicial">Dinheiro na gaveta para troco (R$)</label><input id="cx-inicial" type="number" step="0.01" min="0" required value="0"></div>' +
+        '<button class="btn btn-ouro" type="submit">Abrir caixa</button></form>';
+    } else {
+      h += '<div class="cartoes-resumo">' +
+        '<div class="cartao-num"><span>Aberto desde</span><strong>' + esc(N.horaCurta(cx.aberto_em)) + '</strong></div>' +
+        '<div class="cartao-num"><span>Recebido no caixa</span><strong>' + N.reais(cx.vendas) + '</strong></div>' +
+        '<div class="cartao-num"><span>Dinheiro na gaveta</span><strong>' + N.reais(cx.dinheiro_esperado) + '</strong></div>' +
+        '<div class="cartao-num"><span>A receber</span><strong>' + N.reais(cx.a_receber) + '</strong></div></div>';
+      h += '<div class="barra-acoes"><button class="btn btn-ouro" type="button" data-acao="venda-balcao">+ Venda no balcão</button></div>';
+      h += '<div class="caixa"><h3 style="margin-top:0">Recebido por forma</h3>' + (Object.keys(cx.por_forma).length ? Object.keys(cx.por_forma).map(function (f) {
+        return '<div class="barra-acoes" style="margin:0 0 4px"><span style="flex:1">' + esc(NOMES_PAG[f] || f) + '</span><b>' + N.reais(cx.por_forma[f]) + '</b></div>';
+      }).join('') : '<p style="margin:0">Nada recebido ainda.</p>') +
+        '<p style="font-size:13px;color:var(--texto-2);margin:8px 0 0">Gaveta = troco inicial ' + N.reais(cx.valor_inicial) + ' + dinheiro recebido + suprimentos ' + N.reais(cx.suprimentos) + ' − sangrias ' + N.reais(cx.sangrias) + '.</p></div>';
+      var pend = st.pedidos.filter(function (p) { return p.pagamento_status === 'PENDENTE' && p.status !== 'CANCELADO'; });
+      h += '<h3>A receber (' + pend.length + ')</h3>' + (pend.length ? '<div class="lista-pedidos">' + pend.map(linhaPedido).join('') + '</div>' : '<div class="vazio">Nenhum pedido esperando pagamento.</div>');
+      h += '<form id="form-mov-caixa" class="caixa"><h3 style="margin-top:0">Sangria ou suprimento</h3><div class="linha-2"><div class="campo"><label for="mv-tipo">Tipo</label><select id="mv-tipo"><option value="sangria">Sangria (tirar dinheiro)</option><option value="suprimento">Suprimento (colocar dinheiro)</option></select></div>' +
+        '<div class="campo"><label for="mv-valor">Valor (R$)</label><input id="mv-valor" type="number" step="0.01" min="0.01" required></div></div>' +
+        '<div class="campo"><label for="mv-motivo">Motivo</label><input id="mv-motivo" required minlength="3" maxlength="120"></div><button class="btn btn-linha btn-peq" type="submit">Registrar</button>' +
+        (cx.movimentos.length ? '<ul style="margin:10px 0 0;padding-left:18px;font-size:14px">' + cx.movimentos.map(function (m) { return '<li>' + esc(N.horaCurta(m.em)) + ' · ' + (m.tipo === 'sangria' ? '−' : '+') + ' ' + N.reais(m.valor) + ' · ' + esc(m.motivo) + '</li>'; }).join('') + '</ul>' : '') + '</form>';
+      h += '<form id="form-fechar-caixa" class="caixa"><h3 style="margin-top:0">Fechar caixa</h3><p style="font-size:14px;color:var(--texto-2);margin-top:0">Conte o dinheiro da gaveta e digite abaixo. O sistema mostra se sobrou ou faltou.</p>' +
+        '<div class="campo"><label for="cx-contado">Dinheiro contado na gaveta (R$)</label><input id="cx-contado" type="number" step="0.01" min="0" required></div>' +
+        (cx.pedidos_a_receber ? '<div class="aviso-caixa">' + cx.pedidos_a_receber + ' pedido(s) deste caixa ainda sem pagamento marcado.</div>' : '') +
+        '<button class="btn btn-perigo" type="submit">Fechar caixa</button></form>';
+    }
+    if (cx.fechamentos && cx.fechamentos.length) {
+      h += '<div class="caixa rolagem-x"><h3 style="margin-top:0">Últimos fechamentos</h3><table class="tabela"><thead><tr><th>Fechado em</th><th>Recebido</th><th>Gaveta esperada</th><th>Contado</th><th>Diferença</th></tr></thead><tbody>' +
+        cx.fechamentos.map(function (f) {
+          return '<tr><td>' + esc(N.dataHora(f.fechado_em)) + '</td><td>' + N.reais(f.vendas) + '</td><td>' + N.reais(f.dinheiro_esperado) + '</td><td>' + N.reais(f.dinheiro_contado) + '</td>' +
+            '<td style="color:' + (f.diferenca < 0 ? 'var(--erro)' : f.diferenca > 0 ? 'var(--aviso)' : 'var(--ok)') + '">' + (f.diferenca > 0 ? '+' : '') + N.reais(f.diferenca) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    return h;
+  }
+
+  // ================================================================ mesas e garçom — do CONIS
+
+  function telaMesas() {
+    var h = '<h2>🍽️ Mesas</h2><p style="color:var(--texto-2);font-size:14px;margin-top:0">Toque na mesa para lançar pedido ou ver a conta. O pedido vai direto para a cozinha. A conta só fecha quando tudo da mesa ficou pronto. Pedidos feitos pelo QR Code da mesa também aparecem aqui.</p>';
+    if (!st.mesas.length) return h + '<div class="aviso-caixa">Nenhuma mesa cadastrada. Defina a quantidade em Loja.</div>';
+    h += '<div class="mesas-grade">' + st.mesas.map(function (m) {
+      return '<button type="button" class="mesa-cartao' + (m.ocupada ? ' ocupada' : '') + '" data-acao="abrir-mesa" data-mesa="' + m.numero + '"><b>Mesa ' + m.numero + '</b>' +
+        (m.ocupada ? '<span>' + N.reais(m.total) + '</span><small>desde ' + esc(N.horaCurta(m.desde)) + (m.pronta_para_fechar ? ' · pronta para fechar' : ' · na cozinha') + '</small>' : '<small>Livre</small>') + '</button>';
+    }).join('') + '</div>';
+    return h;
+  }
+  function mesaAtual(n) { return st.mesas.filter(function (m) { return String(m.numero) === String(n); })[0]; }
+  function abrirMesa(n) {
+    var m = mesaAtual(n);
+    if (!m) return;
+    var h = '<div class="janela-cab"><h2 id="janela-titulo">Mesa ' + esc(n) + '</h2><button class="fechar" type="button" data-acao="fechar" aria-label="Fechar">×</button></div>';
+    if (!m.ocupada) h += '<div class="vazio">Mesa livre.</div>';
+    else {
+      h += m.pedidos.map(function (p) {
+        return '<div class="resumo-bloco"><b>#' + esc(p.numero) + '</b> <span class="status st-' + p.status + '">' + N.STATUS_NOMES[p.status] + '</span>' + (p.garcom ? ' · ' + esc(p.garcom) : '') +
+          '<ul style="margin:6px 0;padding-left:18px">' + p.itens.map(function (i) { return '<li>' + i.quantidade + '× ' + esc(i.nome) + ' — ' + N.reais(i.total) + '</li>'; }).join('') + '</ul></div>';
+      }).join('');
+      h += '<div class="totais"><div class="total"><span>Total da mesa</span><span>' + N.reais(m.total) + '</span></div></div>';
+      if (window.AterrissePix && st.cardPub && st.cardPub.loja.pix_chave) h += '<button class="btn btn-linha btn-peq" type="button" data-acao="pix-mesa" data-mesa="' + esc(n) + '">📱 ' + (st.pixMesa === String(n) ? 'Esconder' : 'Mostrar') + ' QR do Pix</button>' +
+        (st.pixMesa === String(n) ? window.AterrissePix.bloco(st.cardPub.loja, m.total, 'MESA' + n, 'Mostre ao cliente na mesa.') : '');
+      h += m.pronta_para_fechar ? '<div style="margin-top:10px;font-weight:800">Fechar a conta, recebido em:</div><div class="barra-acoes" style="margin-top:6px">' + [['dinheiro', '💵 Dinheiro'], ['cartao', '💳 Cartão'], ['pix', '📱 Pix']].map(function (f) {
+        return '<button class="btn btn-ouro btn-peq" type="button" data-acao="fechar-mesa" data-mesa="' + esc(n) + '" data-forma="' + f[0] + '">' + f[1] + '</button>';
+      }).join('') + '</div>' : '<div class="aviso-caixa">Ainda tem pedido desta mesa na cozinha. A conta fecha quando tudo ficar pronto.</div>';
+      h += '<div class="barra-acoes"><button class="btn btn-linha btn-peq" type="button" data-acao="imprimir-mesa" data-mesa="' + esc(n) + '">🖨️ Imprimir conta</button></div>';
+    }
+    h += '<div class="rodape-janela"><button class="btn btn-ouro" type="button" data-acao="lancar-mesa" data-mesa="' + esc(n) + '">+ Lançar pedido</button></div>';
+    abrirJanela(h);
+  }
+
+  // ================================================================ clientes — do CONIS (só a equipe vê)
+
+  function telaClientes() {
+    var b = (st.buscaCliente || '').trim().toLowerCase(), bd = N.soDigitos(b);
+    var lista = st.clientes.filter(function (c) { return !b || String(c.nome).toLowerCase().indexOf(b) >= 0 || (bd && String(c.telefone).indexOf(bd) >= 0); });
+    var h = '<h2>Clientes</h2><p style="color:var(--texto-2);font-size:14px;margin-top:0">Montado sozinho a partir dos pedidos com telefone. Só a equipe vê. O cliente no cardápio não consegue procurar ninguém.</p>' +
+      '<div class="barra-acoes"><input class="entrada" type="search" id="busca-cliente" placeholder="Nome ou telefone" value="' + esc(st.buscaCliente || '') + '" aria-label="Buscar cliente"></div>';
+    if (!lista.length) return h + '<div class="vazio">' + (st.clientes.length ? 'Ninguém encontrado.' : 'Nenhum cliente ainda.') + '</div>';
+    return h + '<div class="caixa rolagem-x"><table class="tabela"><thead><tr><th>Cliente</th><th>Bairro</th><th>Pedidos</th><th>Total</th><th>Último</th><th></th></tr></thead><tbody>' + lista.map(function (c) {
+      return '<tr><td><b>' + esc(c.nome) + '</b><br><small>' + esc(c.telefone) + '</small></td><td>' + esc(c.endereco ? c.endereco.bairro : '—') + '</td><td>' + c.pedidos + '</td><td>' + N.reais(c.total) + '</td>' +
+        '<td>' + esc(N.dataHora(c.ultimo_em)) + '</td><td><a class="btn btn-linha btn-peq" target="_blank" rel="noopener" href="' + esc(N.linkWhatsApp(N.normalizarTelefone(c.telefone), 'Olá, ' + String(c.nome).split(' ')[0] + '!')) + '">WhatsApp</a></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  // ================================================================ impressão (comanda e conta) — do CONIS
+
+  function imprimir(html) {
+    $('#area-impressao').innerHTML = '<div class="comanda">' + html + '</div>';
+    window.print();
+  }
+  function htmlComanda(p) {
+    var l = st.lojaPub || {};
+    return '<h1>' + esc(l.nome || '') + '</h1><p><b>Pedido #' + esc(p.numero) + '</b> · ' + esc(N.dataHora(p.criado_em)) + '<br>' + esc(N.MODALIDADE_NOMES[p.modalidade]) + (p.mesa ? ' · Mesa ' + esc(p.mesa) : '') + '</p>' +
+      '<p>' + esc(p.nome) + (p.telefone ? ' · ' + esc(p.telefone) : '') + (p.endereco ? '<br>' + esc(p.endereco.rua + ', ' + p.endereco.numero + ' — ' + p.endereco.bairro) + (p.endereco.complemento ? ' · ' + esc(p.endereco.complemento) : '') + (p.endereco.referencia ? '<br>Ref.: ' + esc(p.endereco.referencia) : '') : '') + '</p><hr>' +
+      p.itens.map(function (i) {
+        var d = (i.adicionais || []).map(function (a) { return a.nome; }).join(', ');
+        return '<p><b>' + i.quantidade + '× ' + esc(i.nome) + '</b> ' + N.reais(i.total) + (d ? '<br>' + esc(d) : '') + (i.removidos && i.removidos.length ? '<br>SEM: ' + esc(i.removidos.join(', ')) : '') + (i.observacao ? '<br>OBS.: ' + esc(i.observacao) : '') + '</p>';
+      }).join('') + (p.observacoes ? '<p>OBS. DO PEDIDO: ' + esc(p.observacoes) + '</p>' : '') + '<hr>' +
+      '<p>Subtotal ' + N.reais(p.subtotal) + (p.taxa_entrega ? '<br>Entrega ' + N.reais(p.taxa_entrega) : '') + '<br><b>TOTAL ' + N.reais(p.total) + '</b><br>Pagamento: ' + esc(NOMES_PAG[p.pagamento] || p.pagamento) +
+      (p.troco_para ? ' · troco para ' + N.reais(p.troco_para) : '') + (p.pagamento_status === 'CONFIRMADO' ? ' · PAGO' : ' · A RECEBER') + '</p>';
   }
 
   // ================================================================ eventos
@@ -903,6 +1176,74 @@
       await mudarDoDia(Number(el.dataset.k), function (g) { g.opcoes.push({ id: idNovo(), nome: nomeNovo, preco: 0, disponivel: true }); }, nomeNovo + ' acrescentado.');
     }
     else if (a === 'filtro') { st.filtro = el.dataset.filtro; render(); }
+    else if (a === 'chamar-parceiro') {
+      await tentar(function () { return api.chamarParceiro(id); }, 'Chamado enviado aos entregadores parceiros.');
+      await carregarAba(st.aba).catch(function () {}); atualizarJanelaPedido();
+    }
+    else if (a === 'cancelar-parceiro') {
+      if (!confirm('Cancelar o chamado do entregador parceiro?')) return;
+      await tentar(function () { return api.cancelarParceiro(id); }, 'Chamado cancelado.');
+      await carregarAba(st.aba).catch(function () {}); atualizarJanelaPedido();
+    }
+    else if (a === 'oferecer') {
+      var quem = await tentar(function () { return api.oferecerEntrega(id); });
+      toast(quem ? 'Entrega oferecida a ' + quem + '.' : 'Nenhum entregador online agora.');
+      await carregarAba(st.aba).catch(function () {}); atualizarJanelaPedido();
+    }
+    else if (a === 'resolver-ocorrencia') {
+      await tentar(function () { return api.resolverOcorrencia(id, Number(el.dataset.i)); }, 'Ocorrência resolvida.');
+      await carregarAba(st.aba).catch(function () {}); atualizarJanelaPedido();
+    }
+    else if (a === 'imprimir-comanda') { var pc = acharPedido(id); if (pc) imprimir(htmlComanda(pc)); }
+    else if (a === 'venda-balcao') abrirMontador('balcao');
+    else if (a === 'abrir-mesa') abrirMesa(el.dataset.mesa);
+    else if (a === 'lancar-mesa') abrirMontador('mesa', el.dataset.mesa);
+    else if (a === 'pix-mesa') { st.pixMesa = st.pixMesa === el.dataset.mesa ? null : el.dataset.mesa; abrirMesa(el.dataset.mesa); }
+    else if (a === 'fechar-mesa') {
+      if (!confirm('Fechar a conta da mesa ' + el.dataset.mesa + ' com pagamento em ' + NOMES_PAG[el.dataset.forma] + '?')) return;
+      var fm = await tentar(function () { return api.fecharMesa(el.dataset.mesa, el.dataset.forma); });
+      toast('Mesa ' + fm.mesa + ' fechada: ' + N.reais(fm.total) + '. Mesa livre.');
+      fecharJanela(); irPara('mesas');
+    }
+    else if (a === 'imprimir-mesa') {
+      var mm = mesaAtual(el.dataset.mesa);
+      if (mm) imprimir('<h1>' + esc((st.lojaPub || {}).nome || '') + '</h1><p><b>Conta da mesa ' + esc(mm.numero) + '</b> · ' + esc(N.dataHora(new Date().toISOString())) + '</p><hr>' +
+        mm.pedidos.map(function (p) { return p.itens.map(function (i) { return '<p>' + i.quantidade + '× ' + esc(i.nome) + ' ' + N.reais(i.total) + '</p>'; }).join(''); }).join('') + '<hr><p><b>TOTAL ' + N.reais(mm.total) + '</b></p>');
+    }
+    else if (a === 'montar-produto') {
+      var mp = N.acharProduto(st.cardPub, id);
+      if ((mp.grupos || []).length) { montar.escolhendo = mp.id; montar.marcadas = []; desenharMontador(); }
+      else { adicionarAoMontador({ produto_id: mp.id, quantidade: 1, adicionais: [], removidos: [], observacao: '' }); desenharMontador(); }
+    }
+    else if (a === 'montar-voltar') { montar.escolhendo = null; desenharMontador(); }
+    else if (a === 'montar-confirmar') {
+      var pe = N.acharProduto(st.cardPub, montar.escolhendo);
+      var novoItem = { produto_id: pe.id, quantidade: 1, adicionais: montar.marcadas.slice(), removidos: [], observacao: '' };
+      var ers = N.validarEscolha(pe, novoItem);
+      if (ers.length) { $('#erros-montar').innerHTML = ers.map(esc).join('<br>'); return; }
+      adicionarAoMontador(novoItem); montar.escolhendo = null; desenharMontador();
+    }
+    else if (a === 'montar-qtd') {
+      var it = montar.itens[Number(el.dataset.i)];
+      it.quantidade += Number(el.dataset.delta);
+      if (it.quantidade < 1) montar.itens.splice(Number(el.dataset.i), 1); else it.quantidade = Math.min(50, it.quantidade);
+      desenharMontador();
+    }
+    else if (a === 'montar-enviar') {
+      el.disabled = true;
+      try {
+        if (montar.tipo === 'mesa') {
+          st.garcom = $('#mt-garcom').value.trim();
+          var pm = await api.lancarMesa(montar.mesa, montar.itens, st.garcom, $('#mt-obs').value.trim());
+          toast('Pedido #' + pm.numero + ' da mesa ' + montar.mesa + ' enviado para a cozinha.');
+          fecharJanela(); irPara('mesas');
+        } else {
+          var pb = await api.venderBalcao({ itens: montar.itens, nome: $('#mt-nome').value.trim(), telefone: $('#mt-tel').value, pagamento: $('#mt-pag').value, pago: $('#mt-pago').checked });
+          toast('Venda #' + pb.numero + ' registrada: ' + N.reais(pb.total) + '.');
+          fecharJanela(); irPara('caixa');
+        }
+      } catch (e) { el.disabled = false; $('#erros-montar').textContent = e.message || 'Não foi possível registrar.'; }
+    }
     else if (a === 'abrir-pedido') { if (!st.entregadores.length && st.papel !== 'cozinha') { try { st.entregadores = await api.listarEntregadores(); } catch (e) { /* segue */ } } abrirPedido(id); }
     else if (a === 'status') mudarStatus(id, el.dataset.para);
     else if (a === 'pix-pedido') { st.pixAberto = st.pixAberto === id ? null : id; atualizarJanelaPedido(); }
@@ -965,9 +1306,10 @@
       st.adm.loja.url_publica = u;
     }
     else if (a === 'trocar-senha') {
-      var nova = prompt('Nova senha para ' + el.dataset.nome + ' (mínimo 6 caracteres):');
+      var real = !!(st.lojaPub && st.lojaPub.modo === 'real');
+      var nova = prompt('Nova senha para ' + el.dataset.nome + (real ? ' (8 ou mais, com letras e números; a pessoa cria a definitiva no próximo acesso):' : ' (loja em teste: pode ser ' + SENHA_TESTE + '):'), real ? '' : SENHA_TESTE);
       if (nova === null) return;
-      if (nova.length < 6) { alert('A senha precisa ter pelo menos 6 caracteres.'); return; }
+      if (erroSenha(nova, real)) { alert(erroSenha(nova, real)); return; }
       await tentar(function () { return api.trocarSenha(id, nova); }, 'Senha trocada. Passe a senha nova para a pessoa.');
     }
     else if (a === 'ativo-entregador') {
@@ -979,6 +1321,10 @@
 
   document.addEventListener('change', async function (ev) {
     var el = ev.target, a = el.dataset && el.dataset.acao;
+    if (a === 'montar-opcao' && montar) {
+      if (el.checked) montar.marcadas.push(el.value); else montar.marcadas = montar.marcadas.filter(function (x) { return x !== el.value; });
+      return;
+    }
     if (a === 'entregador') {
       await tentar(function () { return api.atribuirEntregador(el.dataset.id, el.value || null); }, 'Entregador atualizado.');
       await carregarAba(st.aba).catch(function () {}); atualizarJanelaPedido();
@@ -1002,6 +1348,29 @@
   });
 
   document.addEventListener('input', function (ev) {
+    if (ev.target.id === 'montar-busca' && montar) {
+      montar.busca = ev.target.value;
+      var pos0 = ev.target.selectionStart;
+      desenharMontador();
+      var mb = $('#montar-busca'); if (mb) { mb.focus(); mb.setSelectionRange(pos0, pos0); }
+      return;
+    }
+    if (ev.target.id === 'mt-tel') { // cliente conhecido pelo telefone (do CONIS): mostra o nome para a equipe conferir
+      var d = N.soDigitos(ev.target.value), aviso = $('#mt-cliente');
+      if (d.length >= 10 && aviso) api.clientes().then(function (cl) {
+        var c = cl.filter(function (x) { return x.telefone === d || x.telefone.slice(-d.length) === d; })[0];
+        aviso.textContent = c ? 'Cliente: ' + c.nome + ' · ' + c.pedidos + ' pedido(s)' : 'Cliente novo';
+        if (c && !$('#mt-nome').value) $('#mt-nome').value = c.nome;
+      }).catch(function () {});
+      return;
+    }
+    if (ev.target.id === 'busca-cliente') {
+      st.buscaCliente = ev.target.value;
+      var pos1 = ev.target.selectionStart;
+      render();
+      var bc = $('#busca-cliente'); if (bc) { bc.focus(); bc.setSelectionRange(pos1, pos1); }
+      return;
+    }
     if (ev.target.id === 'busca-pedido') {
       st.busca = ev.target.value;
       var pos = ev.target.selectionStart;
@@ -1015,6 +1384,7 @@
   document.addEventListener('submit', async function (ev) {
     var f = ev.target;
     ev.preventDefault();
+    if (f.id === 'form-nova-senha') { salvarNovaSenha(); return; }
     if (f.id === 'form-login') {
       var senha = $('#l-senha').value;
       try {
@@ -1049,8 +1419,27 @@
       if (dados.url_publica && !/^https?:\/\//.test(dados.url_publica)) { alert('O endereço público deve começar com https://'); return; }
       if (dados.logo_url && !/^(https:\/\/|assets\/|data:image\/(png|jpeg|webp);base64,)/.test(dados.logo_url)) { alert('Logo inválida.'); return; }
       if ($('input[name="lj-logo-tipo"]:checked') && $('input[name="lj-logo-tipo"]:checked').value === 'outra' && !dados.logo_url) { alert('Envie uma imagem ou cole o endereço da logo.'); return; }
-      await tentar(function () { return api.salvarLoja(dados); }, 'Configurações salvas.');
+      var entrega = null;
+      if ($('#lj-bairros')) {
+        try { entrega = { taxas_bairro: lerBairros($('#lj-bairros').value), endereco: $('#lj-endereco').value.trim() }; }
+        catch (e) { alert(e.message); return; }
+      }
+      await tentar(function () { return api.salvarLoja(dados); });
+      if (entrega) await tentar(function () { return api.salvarEntrega(entrega); });
+      toast('Configurações salvas.');
       irPara('loja');
+    } else if (f.id === 'form-abrir-caixa') {
+      await tentar(function () { return api.abrirCaixa(Number($('#cx-inicial').value), (api.sessao() || {}).email); }, 'Caixa aberto.');
+      irPara('caixa');
+    } else if (f.id === 'form-mov-caixa') {
+      await tentar(function () { return api.movimentoCaixa($('#mv-tipo').value, Number($('#mv-valor').value), $('#mv-motivo').value); }, 'Registrado.');
+      irPara('caixa');
+    } else if (f.id === 'form-fechar-caixa') {
+      if (!confirm('Fechar o caixa agora?')) return;
+      var fc = await tentar(function () { return api.fecharCaixa(Number($('#cx-contado').value)); });
+      alert('Caixa fechado.\n\nRecebido: ' + N.reais(fc.vendas) + '\nDinheiro esperado na gaveta: ' + N.reais(fc.dinheiro_esperado) + '\nContado: ' + N.reais(fc.dinheiro_contado) +
+        '\nDiferença: ' + (fc.diferenca === 0 ? 'nenhuma ✔' : (fc.diferenca > 0 ? 'sobrou ' : 'faltou ') + N.reais(Math.abs(fc.diferenca))));
+      irPara('caixa');
     } else if (f.id === 'form-rel') {
       st.relIni = $('#r-ini').value; st.relFim = $('#r-fim').value;
       if (!st.relIni || !st.relFim || st.relFim < st.relIni) { alert('Período inválido.'); return; }
@@ -1059,9 +1448,10 @@
     } else if (f.id === 'form-membro') {
       var novo = { nome: $('#m-nome').value.trim(), usuario: N.normalizarUsuario($('#m-usuario').value), senha: $('#m-senha').value, papel: $('#m-papel').value };
       if (!/^[a-z0-9._-]{3,30}$/.test(novo.usuario)) { alert('Usuário com 3 a 30 letras ou números, sem acento e sem espaço.'); return; }
-      if (novo.senha.length < 6) { alert('A senha precisa ter pelo menos 6 caracteres.'); return; }
+      var lojaReal = !!(st.lojaPub && st.lojaPub.modo === 'real');
+      if (erroSenha(novo.senha, lojaReal)) { alert(erroSenha(novo.senha, lojaReal)); return; }
       await tentar(function () { return api.criarAcesso(novo); });
-      alert('Acesso criado.\n\nUsuário: ' + novo.usuario + '\nSenha: a que você digitou\n\nEntrada: ' + location.href.replace(/painel\.html.*$/, '') + (novo.papel === 'entregador' ? 'entregador.html' : novo.papel === 'cozinha' ? 'cozinha.html' : 'painel.html'));
+      alert('Acesso criado.\n\nUsuário: ' + novo.usuario + '\nSenha: a que você digitou\n\nEntrada: ' + location.href.replace(/painel\.html.*$/, '') + comLoja(novo.papel === 'entregador' ? 'entregador.html' : novo.papel === 'cozinha' ? 'cozinha.html' : 'painel.html'));
       irPara('equipe');
     } else if (f.id === 'form-entregador') {
       var tel = N.soDigitos($('#e-tel').value);
