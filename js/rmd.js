@@ -67,7 +67,8 @@
     if (COM_BANCO) {
       h += '<form id="form-login" data-tipo="banco"><div class="campo"><label for="l-usuario">Usuário ou e-mail do desenvolvedor</label><input id="l-usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required maxlength="120"></div>' +
         '<div class="campo"><label for="l-senha">Senha</label><input id="l-senha" type="password" required autocomplete="current-password"></div>' +
-        '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form></div>';
+        '<button class="btn btn-ouro btn-bloco" type="submit">Entrar</button></form>' +
+        '<p style="text-align:center;margin:12px 0 0"><button class="btn btn-linha btn-peq" type="button" data-acao="esqueci-senha">Esqueci minha senha</button></p></div>';
     } else {
       var criar = !lerL(CHAVE_SENHA);
       h += '<div class="aviso-caixa">Modo demonstração: a senha e as lojas ficam só neste navegador.</div>' +
@@ -80,8 +81,30 @@
     var f = $('#conteudo input'); if (f) f.focus();
   }
 
+  // volta do link "Esqueci minha senha" (o código vem depois do # no endereço)
+  function lerVoltaDoLink() {
+    var h = new URLSearchParams(String(location.hash || '').replace(/^#/, ''));
+    if (h.get('error_description')) return { erro: h.get('error_description') };
+    if (h.get('type') === 'recovery' && h.get('access_token')) return { token: h.get('access_token') };
+    return null;
+  }
+  function limparEndereco() { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; } }
+  function telaNovaSenha(token, msg) {
+    $('#btn-sair').classList.add('oculto');
+    $('#conteudo').innerHTML = '<div class="login caixa"><h2>Criar senha nova</h2>' + (msg ? '<div class="erro-caixa">' + esc(msg) + '</div>' : '') +
+      '<p style="font-size:14px;color:var(--texto-2)">Digite a senha nova da sua conta de desenvolvedor (pelo menos 6 caracteres). Ela vale também no administrador do RMD Ponto, que usa a mesma conta.</p>' +
+      '<form id="form-nova-senha" data-token="' + esc(token) + '"><div class="campo"><label for="ns-1">Senha nova</label><input id="ns-1" type="password" required minlength="6" maxlength="72" autocomplete="new-password"></div>' +
+      '<div class="campo"><label for="ns-2">Repita a senha nova</label><input id="ns-2" type="password" required minlength="6" maxlength="72" autocomplete="new-password"></div>' +
+      '<button class="btn btn-ouro btn-bloco" type="submit">Salvar senha e entrar</button></form>' +
+      (api.sessao() && !lerVoltaDoLink() ? '<p style="text-align:center;margin:12px 0 0"><button class="btn btn-linha btn-peq" type="button" data-acao="voltar-area">Voltar sem trocar</button></p>' : '') + '</div>';
+    var f = $('#ns-1'); if (f) f.focus();
+  }
+
   async function iniciar() {
     if (COM_BANCO) {
+      var volta = lerVoltaDoLink();
+      if (volta && volta.erro) { limparEndereco(); return telaLogin('O link de troca de senha não vale mais (expirou ou já foi usado). Toque em "Esqueci minha senha" de novo.'); }
+      if (volta && volta.token) return telaNovaSenha(volta.token);
       if (!api.sessao()) return telaLogin();
       var sou = false;
       try { sou = await api.souRmd(); } catch (e) { if (e.codigo === 'REDE') return telaLogin(e.message); }
@@ -118,18 +141,48 @@
       ' · plano ' + N.reais(v.plano) + (v.chamadas ? ' + chamados ' + N.reais(v.chamadas) : '') + ' = <b>' + N.reais(real ? v.total : 0) + '</b>' +
       (window.RmdPlanos.MES_GRATIS ? ' <span style="color:var(--texto-2)">(lembre: o 1º mês é grátis)</span>' : '') + '</p>';
   }
+  // Enviar o acesso ao dono (pedido do Rinaldo, 22/11/2026): mensagem pronta com os links do sistema da loja.
+  // Lojas com endereço próprio usam o endereço delas; as outras, o link de sistema próprio no Pede Sul. Sem senha na mensagem.
+  var ENDERECO_PROPRIO = { etabrownie: 'https://rmd-etabrownie.github.io/', litoral: 'https://rmd-litoral.github.io/', 'conis-burger': 'https://rmd-conis.github.io/', aterrisse: 'https://rmd-aterrisse.github.io/' };
+  function mensagemAcesso(l) {
+    var base = location.href.replace(/rmd\.html.*$/, '').replace(/[?#].*$/, ''), proprio = ENDERECO_PROPRIO[l.slug];
+    var q = '?loja=' + encodeURIComponent(l.slug);
+    var link = function (pag) { return proprio ? proprio + (pag === 'loja.html' ? '' : pag) : base + pag + q + (pag === 'loja.html' ? '&proprio=1' : ''); };
+    return 'Olá! Aqui é o Rinaldo, da RMD. O sistema da ' + l.nome + ' está pronto' + (l.plano === 'cortesia' ? ', de cortesia (sem mensalidade)' : '') + ':\n\n' +
+      '📱 Cardápio para os clientes (mande no Instagram e no WhatsApp):\n' + link('loja.html') + '\n\n' +
+      '🖥️ Seu painel (pedidos, cardápio, preços, Pix, equipe e propagandas):\n' + link('painel.html') + '\nUsuário: dono\n\n' +
+      '👩‍🍳 Cozinha: ' + link('cozinha.html') + '\n' +
+      '🛵 Entregador: ' + link('entregador.html') + '\n' +
+      'Os usuários da equipe (caixa, cozinha, entregador) estão no seu painel, em "Equipe".\n\n' +
+      'A senha provisória eu te mando na próxima mensagem. No painel, em "Equipe", você troca as senhas e cria mais pessoas.\n' +
+      'Para virar aplicativo no celular: abra o link no Chrome, toque nos 3 pontinhos e em "Instalar app" (ou "Adicionar à tela inicial").\n' +
+      'Qualquer dúvida, me chame!';
+  }
+  // Rinaldo quer mandar pelo WhatsApp NORMAL, não pelo Business (22/11/2026).
+  // Android: abre direto o app com.whatsapp (se não tiver, abre a página do WhatsApp). Computador: abre o WhatsApp Desktop (whatsapp://).
+  function linkWhatsNormal(texto) {
+    var t = encodeURIComponent(texto);
+    if (/Android/i.test(navigator.userAgent)) {
+      return 'intent://send?text=' + t + '#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=' + encodeURIComponent('https://wa.me/?text=' + t) + ';end';
+    }
+    if (/iPhone|iPad/i.test(navigator.userAgent)) return 'https://wa.me/?text=' + t;
+    return 'whatsapp://send?text=' + t;
+  }
   function linksDa(l) {
     var base = location.href.replace(/rmd\.html.*$/, '');
     var q = '?loja=' + encodeURIComponent(l.slug);
     return [['📱 Cardápio', 'loja.html'], ['🖥️ Painel', 'painel.html'], ['👨‍🍳 Cozinha', 'cozinha.html'], ['🛵 Entregador', 'entregador.html']].map(function (x) {
       return '<a class="btn btn-linha btn-peq" href="' + esc(base + x[1] + q) + '" target="_blank" rel="noopener">' + x[0] + '</a>';
-    }).join('');
+    }).join('') +
+      '<a class="btn btn-ouro btn-peq" href="' + esc(linkWhatsNormal(mensagemAcesso(l))) + '" rel="noopener">📲 Enviar acesso ao dono</a>' +
+      '<button class="btn btn-linha btn-peq" type="button" data-acao="copiar-acesso" data-slug="' + esc(l.slug) + '">📋 Copiar mensagem</button>';
   }
 
   function render() {
     var lojas = st.lojas;
     var naVitrine = lojas.filter(function (l) { return l.vitrine; }).length;
-    var h = '<div class="aviso-caixa">Área técnica da plataforma: lojas, liberação, vitrine, recursos e propagandas. Vendas, pedidos e clientes são de cada loja e não aparecem aqui.</div>';
+    var h = '<div class="aviso-caixa">Área técnica da plataforma: lojas, liberação, vitrine, recursos e propagandas. Vendas, pedidos e clientes são de cada loja e não aparecem aqui.</div>' +
+      (COM_BANCO ? '<p style="text-align:right;margin:6px 0"><button class="btn btn-linha btn-peq" type="button" data-acao="trocar-senha">🔑 Trocar minha senha</button></p>' : '');
     if (st.erro) h += '<div class="erro-caixa" role="alert">' + esc(st.erro) + '</div>';
     h += '<div class="cartoes-resumo"><div class="cartao-num"><span>Lojas</span><strong>' + lojas.length + '</strong></div>' +
       '<div class="cartao-num"><span>Na vitrine Pede Sul</span><strong>' + naVitrine + '</strong></div>' +
@@ -386,6 +439,31 @@
     if (!el) return;
     var a = el.dataset.acao;
     if (a === 'sair') { if (COM_BANCO) await api.sair(); else marcarLogado(false); telaLogin(); }
+    else if (a === 'copiar-acesso') {
+      var lj = st.lojas.filter(function (x) { return x.slug === el.dataset.slug; })[0];
+      if (!lj) return;
+      var txt = mensagemAcesso(lj);
+      try { await navigator.clipboard.writeText(txt); toast('Mensagem copiada. Cole no WhatsApp da pessoa.'); }
+      catch (e) { prompt('Copie a mensagem:', txt); }
+    }
+    else if (a === 'trocar-senha') {
+      var tkn = await api._token();
+      if (!tkn) return telaLogin('Sua entrada venceu. Entre de novo ou use "Esqueci minha senha".');
+      telaNovaSenha(tkn);
+    }
+    else if (a === 'voltar-area') { iniciar(); }
+    else if (a === 'esqueci-senha') {
+      var em = ($('#l-usuario') && $('#l-usuario').value.trim()) || '';
+      if (em.indexOf('@') < 0) em = (prompt('Qual é o e-mail da sua conta de desenvolvedor?') || '').trim();
+      if (em.indexOf('@') < 0) return;
+      el.disabled = true;
+      try {
+        await api.recuperarSenha(em, location.origin + location.pathname);
+        telaLogin();
+        $('#conteudo .login').insertAdjacentHTML('afterbegin', '<div class="aviso-caixa" role="status">Pronto! Se <b>' + esc(em) + '</b> for de desenvolvedor, chega um e-mail em alguns minutos com o link para criar a senha nova. ' +
+          'Olhe também a caixa de lixo eletrônico (spam). Abra o link neste mesmo aparelho.</div>');
+      } catch (e) { el.disabled = false; alert(/rate|seconds|too many/i.test(e.message) ? 'Espere 1 minuto antes de pedir outro e-mail.' : e.message); }
+    }
     else if (a === 'aba') { st.aba = el.dataset.aba; if (st.aba === 'parceiros') st.parceiros = null; if (st.aba === 'erros') st.erros = null; render(); }
     else if (a === 'erros-todos') { st.errosTodos = el.checked; st.erros = null; render(); }
     else if (a === 'erros-recarregar') { st.erros = null; render(); }
@@ -425,6 +503,18 @@
   document.addEventListener('submit', async function (ev) {
     var f = ev.target;
     ev.preventDefault();
+    if (f.id === 'form-nova-senha') {
+      var s1 = $('#ns-1').value, s2 = $('#ns-2').value, tk = f.dataset.token;
+      if (s1.length < 6) return telaNovaSenha(tk, 'A senha precisa ter pelo menos 6 caracteres.');
+      if (s1 !== s2) return telaNovaSenha(tk, 'As duas senhas não são iguais.');
+      try {
+        var u = await api.novaSenhaComCodigo(tk, s1);
+        limparEndereco();
+        await api.entrar(u.email, s1);
+        toast('Senha nova salva. Bem-vindo!');
+        return iniciar();
+      } catch (e) { if (e.codigo === 'AUTH' && /expirou|já foi usado/.test(e.message)) { limparEndereco(); return telaLogin(e.message); } return telaNovaSenha(tk, e.message); }
+    }
     if (f.id === 'form-login') {
       try {
         if (f.dataset.tipo === 'banco') { await api.entrar($('#l-usuario').value.trim(), $('#l-senha').value); return iniciar(); }
